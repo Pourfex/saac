@@ -38,7 +38,7 @@ namespace SAAC.PipelineServices
             this.serializer = serializer;
             this.name = name;
             this.Port = port;
-            this.In = pipeline.CreateReceiver<T>(this, this.Receive, nameof(this.In));
+            this.In = pipeline.CreateReceiver<T>(this, this.Receive, $"{name}-In");
             this.listener = new TcpListener(IPAddress.Any, port);
             this.clients = new List<TcpClient>();
             Start();
