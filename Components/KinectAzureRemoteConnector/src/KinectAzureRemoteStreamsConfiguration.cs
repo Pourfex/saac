@@ -1,23 +1,18 @@
 ﻿using Microsoft.Psi.Remoting;
 
 namespace SAAC.RemoteConnectors
-{
-    public class KinectAzureRemoteStreamsConfiguration
+{ 
+    // Why not use the psi azure configuration as base?
+    public class KinectAzureRemoteStreamsConfiguration : Microsoft.Psi.AzureKinect.AzureKinectSensorConfiguration
     {
         public int KinectDeviceIndex { get; set; } = 0;
 
         // Stream available
-        public bool StreamAudio { get; set; } = true;
-        public bool StreamSkeleton { get; set; } = true;
-        public bool StreamVideo { get; set; } = true;
-        public bool StreamDepth { get; set; } = false;
-        public bool StreamDepthCalibration { get; set; } = false;
-        public bool StreamIMU { get; set; } = false;
+        public bool OutputAudio { get; set; } = true;
+        public bool OutputBodies { get; set; } = true;
 
         // Configuration for video stream
         public int EncodingVideoLevel { get; set; } = 90;
-        public Microsoft.Azure.Kinect.Sensor.ColorResolution VideoResolution { get; set; } = Microsoft.Azure.Kinect.Sensor.ColorResolution.R1080p;
-        public Microsoft.Azure.Kinect.Sensor.FPS FPS { get; set; } = Microsoft.Azure.Kinect.Sensor.FPS.FPS30;
 
         // Network
         public TransportKind ConnectionType { get; set; } = TransportKind.Tcp;
