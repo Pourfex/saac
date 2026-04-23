@@ -1,0 +1,440 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>WhisperSAAC</name>
+    </assembly>
+    <members>
+        <member name="T:SAAC.Whisper.Language">
+            <summary>
+            Supported languages for Whisper speech recognition.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.Language.NotSet">
+            <summary>
+            Language not set (auto-detect).
+            </summary>
+        </member>
+        <member name="T:SAAC.Whisper.SegmentationRestriction">
+            <summary>
+            Segmentation restriction options for Whisper speech recognition.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.SegmentationRestriction.NotSet">
+            <summary>
+            No segmentation restriction set.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.SegmentationRestriction.OnePerWord">
+            <summary>
+            One segment per word.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.SegmentationRestriction.OnePerUtterence">
+            <summary>
+            One segment per utterance.
+            </summary>
+        </member>
+        <member name="T:SAAC.Whisper.TimestampMode">
+            <summary>
+            Timestamp mode options for speech recognition results.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.TimestampMode.NotSet">
+            <summary>
+            No timestamp mode set.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.TimestampMode.AtStart">
+            <summary>
+            Timestamp at the start of the segment.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.TimestampMode.AtEnd">
+            <summary>
+            Timestamp at the end of the segment.
+            </summary>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperAudioProcessing">
+            <summary>
+            Provides audio processing capabilities for Whisper speech recognition.
+            </summary>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResult">
+            <summary>
+            Delegate for handling final speech recognition results.
+            </summary>
+            <param name="time">The time of the result.</param>
+            <param name="id">The user ID.</param>
+            <param name="stt">The speech-to-text result.</param>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode">
+            <summary>
+            Local storage mode options.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode.None">
+            <summary>
+            No local storage.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode.AudioOnly">
+            <summary>
+            Store audio only.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode.VAD_STT">
+            <summary>
+            Store VAD and STT results.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode.All">
+            <summary>
+            Store all data.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.exporters">
+            <summary>
+            The exporters list.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.pipeline">
+            <summary>
+            The pipeline.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.onSpeechRecognitionFinalResultAction">
+            <summary>
+            The speech recognition final result action.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperAudioProcessing.log">
+            <summary>
+            The log action.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.#ctor(Microsoft.Psi.Pipeline,Microsoft.Psi.Speech.SystemVoiceActivityDetectorConfiguration,SAAC.Whisper.WhisperSpeechRecognizerConfiguration,SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResult,SAAC.LogStatus)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Whisper.WhisperAudioProcessing"/> class.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="vadConfiguration">The VAD configuration.</param>
+            <param name="whisperConfiguration">The Whisper configuration.</param>
+            <param name="onSpeechRecognitionFinalResultAction">The speech recognition final result action.</param>
+            <param name="log">The log action.</param>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperAudioProcessing.VadConfiguration">
+            <summary>
+            Gets the VAD configuration.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperAudioProcessing.WhisperConfiguration">
+            <summary>
+            Gets the Whisper configuration.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperAudioProcessing.UsersAudioProducersDictionary">
+            <summary>
+            Gets the dictionary of users audio producers.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupVoiceActivityDetection(Microsoft.Psi.Pipeline,Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer},System.String,System.String)">
+            <summary>
+            Sets up voice activity detection.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="audio">The audio producer.</param>
+            <param name="userId">The user ID.</param>
+            <param name="language">The language.</param>
+            <returns>The VAD producer.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupVoiceActivityDetection(Microsoft.Psi.Pipeline,Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer},System.String,Microsoft.Psi.Speech.SystemVoiceActivityDetectorConfiguration)">
+            <summary>
+            Sets up voice activity detection with configuration.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="audio">The audio producer.</param>
+            <param name="userId">The user ID.</param>
+            <param name="configuration">The VAD configuration.</param>
+            <returns>The VAD producer.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResultAction(System.String,SAAC.LogStatus,SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResult)">
+            <summary>
+            Creates an action for handling speech recognition final results.
+            </summary>
+            <param name="userId">The user ID.</param>
+            <param name="log">The log action.</param>
+            <param name="onSpeechRecognitionFinalResult">The callback action.</param>
+            <returns>The action.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupWhisper(Microsoft.Psi.Pipeline,Microsoft.Psi.IProducer{System.ValueTuple{Microsoft.Psi.Audio.AudioBuffer,System.Boolean}},System.String,SAAC.Whisper.WhisperSpeechRecognizerConfiguration,SAAC.LogStatus,SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResult)">
+            <summary>
+            Sets up Whisper speech recognition.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="annotatedAudioWhisper">The annotated audio producer.</param>
+            <param name="userId">The user ID.</param>
+            <param name="configuration">The Whisper configuration.</param>
+            <param name="log">The log action.</param>
+            <param name="onSpeechRecognitionFinalResultAction">The callback action.</param>
+            <returns>The speech recognition result producer.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupWhisperAudioProcessing(Microsoft.Psi.Pipeline,Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer},System.String,Microsoft.Psi.Speech.SystemVoiceActivityDetectorConfiguration,SAAC.Whisper.WhisperSpeechRecognizerConfiguration,SAAC.LogStatus,SAAC.Whisper.WhisperAudioProcessing.OnSpeechRecognitionFinalResult)">
+            <summary>
+            Sets up Whisper audio processing.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="audio">The audio producer.</param>
+            <param name="userId">The user ID.</param>
+            <param name="vadConfiguration">The VAD configuration.</param>
+            <param name="whisperConfiguration">The Whisper configuration.</param>
+            <param name="log">The log action.</param>
+            <param name="onSpeechRecognitionFinalResultAction">The callback action.</param>
+            <returns>A tuple of audio, VAD, and STT producers.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.Stop">
+            <summary>
+            Stops the audio processing.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupUsersWhisper(System.Collections.Generic.Dictionary{System.String,Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer}},Microsoft.Psi.Data.Session@,System.String,SAAC.Whisper.WhisperAudioProcessing.LocalStorageMode,Microsoft.Psi.Pipeline)">
+            <summary>
+            Sets up Whisper for multiple users with session.
+            </summary>
+            <param name="users">The users dictionary.</param>
+            <param name="session">The session.</param>
+            <param name="path">The storage path.</param>
+            <param name="localStorageMode">The local storage mode.</param>
+            <param name="subpipeline">The optional subpipeline.</param>
+            <returns>The users audio producers dictionary.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupUsersWhisper(System.Collections.Generic.Dictionary{System.String,Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer}},Microsoft.Psi.Pipeline)">
+            <summary>
+            Sets up Whisper for multiple users.
+            </summary>
+            <param name="users">The users dictionary.</param>
+            <param name="subpipeline">The optional subpipeline.</param>
+            <returns>The users audio producers dictionary.</returns>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperAudioProcessing.SetupUserWhisper(Microsoft.Psi.IProducer{Microsoft.Psi.Audio.AudioBuffer},System.String,Microsoft.Psi.Pipeline)">
+            <summary>
+            Sets up Whisper for a single user.
+            </summary>
+            <param name="audio">The audio producer.</param>
+            <param name="userId">The user ID.</param>
+            <param name="subpipeline">The optional subpipeline.</param>
+            <returns>A tuple of audio, VAD, and STT producers.</returns>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperEnvelopesChecker">
+            <summary>
+            Checks and validates envelopes for Whisper speech recognition pipeline.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperEnvelopesChecker.#ctor(Microsoft.Psi.Pipeline,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Whisper.WhisperEnvelopesChecker"/> class.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="name">The component name.</param>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.VadIn">
+            <summary>
+            Gets the VAD input receiver.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.AudioIn">
+            <summary>
+            Gets the audio input receiver.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.SttIn">
+            <summary>
+            Gets the STT input receiver.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.VadOut">
+            <summary>
+            Gets the VAD output emitter.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.AudioOut">
+            <summary>
+            Gets the audio output emitter.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.SttOut">
+            <summary>
+            Gets the STT output emitter.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperEnvelopesChecker.Name">
+            <summary>
+            Gets the component name.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperEnvelopesChecker.ToString">
+            <inheritdoc/>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperSpeechRecognizer">
+            <summary>
+            Whisper-based speech recognition component for Platform for Situated Intelligence.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperSpeechRecognizer.GapSampleThreshold">
+            <remarks>
+            This value should be set as low as possible, while still being high enough to ensure that gap filling is never triggered when the delivery policy is set to Unlimited.
+            </remarks>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperSpeechRecognizer.#ctor(Microsoft.Psi.Pipeline,SAAC.Whisper.WhisperSpeechRecognizerConfiguration,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Whisper.WhisperSpeechRecognizer"/> class.
+            </summary>
+            <param name="pipeline">The pipeline.</param>
+            <param name="config">The configuration.</param>
+            <param name="name">The component name.</param>
+        </member>
+        <member name="E:SAAC.Whisper.WhisperSpeechRecognizer.PropertyChanged">
+            <inheritdoc/>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizer.Progress">
+            <summary>
+            Gets the current progress of speech recognition processing.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizer.In">
+            <summary>
+            Gets the input receiver for audio buffer and speech state.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizer.PartialOut">
+            <summary>
+            Gets the emitter for partial speech recognition results.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizer.FinalOut">
+            <summary>
+            Gets the emitter for final speech recognition results.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizer.Out">
+            <summary>
+            Gets the emitter for all speech recognition results.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperSpeechRecognizer.ToString">
+            <inheritdoc/>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperSpeechRecognizer.Dispose">
+            <inheritdoc/>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperSpeechRecognizerConfiguration">
+            <summary>
+            Configuration for the Whisper speech recognizer.
+            </summary>
+        </member>
+        <member name="M:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.#ctor">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Whisper.WhisperSpeechRecognizerConfiguration"/> class.
+            </summary>
+        </member>
+        <member name="T:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.EWhisperModelDownloadState">
+            <summary>
+            Whisper model download state.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.EWhisperModelDownloadState.InProgress">
+            <summary>
+            Download is in progress.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.EWhisperModelDownloadState.Completed">
+            <summary>
+            Download completed successfully.
+            </summary>
+        </member>
+        <member name="F:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.EWhisperModelDownloadState.Failed">
+            <summary>
+            Download failed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.SpecificModelPath">
+            <summary>
+            Gets or sets the specific model path.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.ModelDirectory">
+            <summary>
+            Gets or sets the model directory.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.ModelType">
+            <summary>
+            Gets or sets the model type.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.QuantizationType">
+            <summary>
+            Gets or sets the quantization type.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.ForceDownload">
+            <summary>
+            Gets or sets a value indicating whether to force download.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.DownloadTimeoutInSeconds">
+            <summary>
+            Gets or sets the download timeout in seconds.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.LazyInitialization">
+            <summary>
+            Gets or sets a value indicating whether to use lazy initialization.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.Language">
+            <summary>
+            Gets or sets the language.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.Prompt">
+            <summary>
+            Gets or sets the prompt.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.SegmentationRestriction">
+            <summary>
+            Gets or sets the segmentation restriction.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.InputTimestampMode">
+            <summary>
+            Gets or sets the input timestamp mode. Default is AtEnd per psi convention.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.OutputTimestampMode">
+            <summary>
+            Gets or sets the output timestamp mode.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.OutputPartialResults">
+            <summary>
+            Gets or sets a value indicating whether to output partial results.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.PartialEvalueationInvervalInSeconds">
+            <summary>
+            Gets or sets the partial evaluation interval in seconds.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.OutputAudio">
+            <summary>
+            Gets or sets a value indicating whether to output audio.
+            </summary>
+        </member>
+        <member name="P:SAAC.Whisper.WhisperSpeechRecognizerConfiguration.OnModelDownloadProgressHandler">
+            <summary>
+            Gets or sets the model download progress handler.
+            </summary>
+        </member>
+    </members>
+</doc>

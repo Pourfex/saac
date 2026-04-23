@@ -1,0 +1,1011 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Groups</name>
+    </assembly>
+    <members>
+        <member name="T:SAAC.Groups.EntryGroupsDetector">
+            <summary>
+            Component that detects entry groups by analyzing the stability of groups over time.
+            Once a group remains stable for a configured duration, it is considered as a formed entry group.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.EntryGroupsDetector.#ctor(Microsoft.Psi.Pipeline,SAAC.Groups.EntryGroupsDetectorConfiguration,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.EntryGroupsDetector"/> class.
+            </summary>
+            <param name="parent">The parent pipeline.</param>
+            <param name="configuration">Optional configuration for the detector.</param>
+            <param name="name">The name of the component.</param>
+        </member>
+        <member name="P:SAAC.Groups.EntryGroupsDetector.Out">
+            <summary>
+            Gets the emitter of detected entry groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.EntryGroupsDetector.In">
+            <summary>
+            Gets the receiver that encapsulates the instant groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.EntryGroupsDetector.InRemovedBodies">
+            <summary>
+            Gets the receiver for removed body IDs.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.EntryGroupsDetector.ToString">
+            <inheritdoc/>
+        </member>
+        <member name="M:SAAC.Groups.EntryGroupsDetector.Process(System.Collections.Generic.Dictionary{System.UInt32,System.Collections.Generic.List{System.UInt32}},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes instant groups and determines which groups have been stable long enough to be considered entry groups.
+            </summary>
+            <param name="instantGroups">Dictionary of instant group detections.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="M:SAAC.Groups.EntryGroupsDetector.ProcessBodiesRemoving(System.Collections.Generic.List{System.UInt32},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes removal of bodies from tracking, cleaning up entry groups that become invalid.
+            </summary>
+            <param name="idsToRemove">List of body IDs to remove.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="T:SAAC.Groups.EntryGroupsDetectorConfiguration">
+            <summary>
+            Configuration for the entry groups detector.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.EntryGroupsDetectorConfiguration.GroupFormationDelay">
+            <summary>
+            Gets or sets the time duration a group must remain stable before being considered a formed entry group.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.FlockGroupIntersection">
+            <summary>
+            Component that calculates intersection points and time ratios between flock groups based on their trajectories.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.FlockGroupIntersection.#ctor(Microsoft.Psi.Pipeline,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.FlockGroupIntersection"/> class.
+            </summary>
+            <param name="parent">The parent pipeline.</param>
+            <param name="name">The name of the component.</param>
+        </member>
+        <member name="P:SAAC.Groups.FlockGroupIntersection.Out">
+            <summary>
+            Gets the emitter of group intersection ratios.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.FlockGroupIntersection.In">
+            <summary>
+            Gets the receiver for input flock groups.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.FlockGroupIntersection.Process(System.Collections.Generic.Dictionary{System.UInt32,SAAC.Groups.SimplifiedFlockGroup},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes flock groups and calculates trajectory intersections between pairs of groups.
+            </summary>
+            <param name="groups">Dictionary of flock groups.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="T:SAAC.Groups.EdgeWidthMode">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.EdgeWidthMode.GazeOrJVA">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.EdgeWidthMode.Synchrony">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.EdgeWidthMode.Proximity">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.EdgeWidthMode.SpeechEquality">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="T:SAAC.Groups.GraphMetricNames">
+            <summary>
+            Names of the metrics of the sociogram (<see cref="T:SAAC.Groups.IndividualPairCharacteristics"/>).
+            They are the names the collaboration indices give to their outputs, so that a set of
+            indices is copied name for name whatever the indicators declared. A metric that is not
+            computed is absent from the dictionaries, which is not the same as a value of zero.
+            </summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.VerbalParticipation">
+            <summary>Per participant: share of the window spent speaking, in [0, 1].</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Movement">
+            <summary>Per participant: physical activity level.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.TaskParticipation">
+            <summary>Per participant: participation in the task.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.PositionX">
+            <summary>
+            Per participant: its place in the room at the instant of the graph, seen from above,
+            in metres: first horizontal coordinate, drawn from left to right.
+            </summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.PositionY">
+            <summary>
+            Per participant: its place in the room at the instant of the graph, seen from above,
+            in metres: second horizontal coordinate, drawn from the bottom to the top.
+            </summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.MeanPositionX">
+            <summary>Per participant: mean of <see cref="F:SAAC.Groups.GraphMetricNames.PositionX"/> over the sliding window of the other metrics.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.MeanPositionY">
+            <summary>Per participant: mean of <see cref="F:SAAC.Groups.GraphMetricNames.PositionY"/> over the sliding window of the other metrics.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Distance">
+            <summary>Per pair: distance between the two participants at the instant of the graph, in metres.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.MeanDistance">
+            <summary>
+            Per pair: mean distance between the two participants over the sliding window of the
+            other metrics, in metres. The sociogram places its nodes from it, so that the whole
+            picture describes the same span of time.
+            </summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Proximity">
+            <summary>Per pair: proximity score of the collaboration indices, 1 when the participants are together.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Synchrony">
+            <summary>Per pair: synchrony of the movements, in [0, 1].</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.JointVisualAttention">
+            <summary>Per pair: joint visual attention.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.JointVisualAttentionIntensity">
+            <summary>Per pair: mean duration of the joint visual attention episodes, normalised.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.SpeechEquality">
+            <summary>Per pair: equality of the speaking times, -1 when nobody spoke.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.TaskEquality">
+            <summary>Per pair: equality of the participations in the task.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.GazeOnPeers">
+            <summary>Per ordered pair: looks of the first participant at the second.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.TalkingMost">
+            <summary>Group: number of the participant who speaks most, 0 when nobody does.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.TaskingMost">
+            <summary>Group: number of the participant who acts most on the task, 0 when nobody does.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.WatchedMost">
+            <summary>Group: number of the participant the others look at most, 0 when nobody is.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.LeadVisualAttention">
+            <summary>Group: number of the participant who leads the visual attention, 0 when nobody does.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Dominance">
+            <summary>Group: dominance score.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.JointAttention">
+            <summary>Group: joint attention score.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.CommunicationProcessManagement">
+            <summary>Group: communication score.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.SpatialBehaviour">
+            <summary>Group: spatial score.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.Engagement">
+            <summary>Group: engagement score.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.SecondDimension">
+            <summary>Group: mean of the dimension scores, as the pipeline before the collaboration indices computed it.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GraphMetricNames.CollaborationScore">
+            <summary>Group: collaboration score.</summary>
+        </member>
+        <member name="P:SAAC.Groups.GraphMetricNames.Leaders">
+            <summary>
+            Gets the group metrics that name a participant, in the order the sociogram lists them.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.GraphMetricNames.DefaultScores">
+            <summary>
+            Gets the scores of the default collaboration model, in the order the sociogram lists them.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.GraphMetrics">
+            <summary>
+            Reading of the metrics and of the identifiers of the sociogram, shared by its classes
+            and by what draws it.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.GraphMetrics.Has(System.Collections.Generic.Dictionary{System.String,System.Double},System.String)">
+            <summary>Says whether a set of metrics holds a usable value for a name.</summary>
+            <param name="metrics">The metrics, possibly null.</param>
+            <param name="metric">Name of the metric.</param>
+            <returns>True when there is a value and it is a number.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GraphMetrics.Get(System.Collections.Generic.Dictionary{System.String,System.Double},System.String,System.Double)">
+            <summary>Reads a metric.</summary>
+            <param name="metrics">The metrics, possibly null.</param>
+            <param name="metric">Name of the metric.</param>
+            <param name="absent">What to return when there is no usable value.</param>
+            <returns>The value, or <paramref name="absent"/>.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GraphMetrics.Number(System.String)">
+            <summary>
+            The number an identifier stands for: 3 for "3". The participants of a session are
+            numbered, and the group metrics that name one of them hold that number.
+            </summary>
+            <param name="id">The identifier.</param>
+            <returns>The number, or null when the identifier is not one.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GraphMetrics.CompareIds(System.String,System.String)">
+            <summary>
+            Order of two identifiers: by number when both are numbers, so that "2" comes
+            before "10", otherwise as text.
+            </summary>
+            <param name="a">First identifier.</param>
+            <param name="b">Second identifier.</param>
+            <returns>Negative when <paramref name="a"/> comes first, positive when it comes last, 0 when they are the same.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GraphMetrics.PairKey(System.String,System.String)">
+            <summary>Key of the pair two identifiers form, the same in both orders.</summary>
+            <param name="a">One identifier.</param>
+            <param name="b">The other one.</param>
+            <returns>The key.</returns>
+        </member>
+        <member name="T:SAAC.Groups.GroupInstant">
+             <summary>
+             What a group is doing at one instant: where each participant is and which way it
+             faces, who is speaking, who is looking at whom or at what, which pairs stand in a
+             formation, what each one holds, and what was detected in the last few seconds.
+            
+             It is the counterpart of <see cref="T:SAAC.Groups.IndividualPairCharacteristics"/>, which describes
+             the last sliding window: here nothing is a mean or a count, everything is the state
+             of the instant, for any number of participants. What is not known is left out: a
+             group without eye tracking has no look, and <see cref="P:SAAC.Groups.GroupInstant.Signals"/> says what the state
+             was built from.
+             </summary>
+        </member>
+        <member name="F:SAAC.Groups.GroupInstant.Places">
+            <summary>Name of the signal of the places and headings of the participants.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GroupInstant.Voice">
+            <summary>Name of the signal of the voice activity of the participants.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GroupInstant.Gaze">
+            <summary>Name of the signal of the looks of the participants.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GroupInstant.Formations">
+            <summary>Name of the signal of the formations of the pairs.</summary>
+        </member>
+        <member name="F:SAAC.Groups.GroupInstant.Task">
+            <summary>Name of the signal of the actions on the objects of the task.</summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInstant.Persons">
+            <summary>Gets or sets the participants.</summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInstant.Pairs">
+            <summary>Gets or sets the pairs of participants that have something in common at this instant.</summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInstant.Events">
+            <summary>Gets or sets what was detected in the last few seconds, the latest last.</summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInstant.Signals">
+            <summary>
+            Gets or sets the signals the state is built from (<see cref="F:SAAC.Groups.GroupInstant.Places"/>,
+            <see cref="F:SAAC.Groups.GroupInstant.Voice"/>, <see cref="F:SAAC.Groups.GroupInstant.Gaze"/>, <see cref="F:SAAC.Groups.GroupInstant.Formations"/>, <see cref="F:SAAC.Groups.GroupInstant.Task"/>):
+            what is not named is not known, which is not the same as nobody speaking or looking.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.GroupInstant.FindPerson(System.String)">
+            <summary>The state of a participant.</summary>
+            <param name="id">Identifier of the participant.</param>
+            <returns>The state, or null when the group has none for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GroupInstant.FindPair(System.String,System.String)">
+            <summary>The state of a pair.</summary>
+            <param name="a">One participant.</param>
+            <param name="b">The other one.</param>
+            <returns>The state, or null when the pair has nothing in common at this instant.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GroupInstant.Has(System.String)">
+            <summary>Says whether the state is built from a signal.</summary>
+            <param name="signal">Name of the signal.</param>
+            <returns>True when it is.</returns>
+        </member>
+        <member name="T:SAAC.Groups.PersonInstant">
+            <summary>
+            A participant at one instant.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.Id">
+            <summary>Gets or sets the identifier of the participant: "1" for the first one.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.HasPlace">
+            <summary>Gets or sets a value indicating whether the place of the participant is known.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.X">
+            <summary>Gets or sets the place in the room, seen from above, in metres: drawn from left to right.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.Y">
+            <summary>Gets or sets the place in the room, seen from above, in metres: drawn from the bottom to the top.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.HeadingX">
+            <summary>
+            Gets or sets the direction the participant faces, on the floor: first coordinate of
+            a vector of length 1, or 0 with <see cref="P:SAAC.Groups.PersonInstant.HeadingY"/> when it is not known.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.HeadingY">
+            <summary>Gets or sets the second coordinate of the direction the participant faces.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.Speaking">
+            <summary>Gets or sets a value indicating whether the participant is speaking, from its voice activity.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.LooksAtPersons">
+            <summary>Gets or sets the participants this one is looking at.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.LooksAtObjects">
+            <summary>Gets or sets the objects this participant is looking at.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonInstant.Holds">
+            <summary>Gets or sets the objects this participant holds.</summary>
+        </member>
+        <member name="T:SAAC.Groups.PairInstant">
+            <summary>
+            A pair of participants at one instant.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PairInstant.First">
+            <summary>Gets or sets the participant of the pair with the lower number.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PairInstant.Second">
+            <summary>Gets or sets the other participant of the pair.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PairInstant.Formation">
+            <summary>
+            Gets or sets the formation the two participants stand in (face to face, L shape,
+            side by side, as the formation detector names it); empty when they are in none.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PairInstant.MutualGaze">
+            <summary>Gets or sets a value indicating whether the two participants are looking at each other.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PairInstant.SharedObjects">
+            <summary>Gets or sets the objects both participants are looking at.</summary>
+        </member>
+        <member name="T:SAAC.Groups.InstantEvent">
+            <summary>
+            Something that was detected: a joint visual attention, a mutual gaze, a turn taking,
+            an action on an object, a handover.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.Time">
+            <summary>Gets or sets when it happened.</summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.DetectedAt">
+            <summary>
+            Gets or sets when it was detected: a detector names an event when it is complete,
+            which may be some time after it happened (a look when it ends, a turn taking once
+            it is confirmed).
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.Category">
+            <summary>Gets or sets what it is, as the detector names it: "JointVisualAttention", "Grab"...</summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.Person">
+            <summary>Gets or sets the participant who did it.</summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.Other">
+            <summary>Gets or sets the other participant, for what involves two; empty otherwise.</summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantEvent.Label">
+            <summary>Gets or sets what it is about: an object, a kind of formation.</summary>
+        </member>
+        <member name="T:SAAC.Groups.IndividualPairCharacteristics">
+             <summary>
+             State of a group at one instant, for a sociogram: a node per participant, an edge per
+             pair of participants and the values of the group.
+            
+             It holds any number of participants and any set of indices. The metrics are kept by
+             name (<see cref="T:SAAC.Groups.GraphMetricNames"/>), under the names the collaboration indices give
+             them: an index that is not computed is absent, and what draws the graph leaves it out.
+             </summary>
+        </member>
+        <member name="P:SAAC.Groups.IndividualPairCharacteristics.PersonNodes">
+            <summary>Gets or sets the participants.</summary>
+        </member>
+        <member name="P:SAAC.Groups.IndividualPairCharacteristics.PersonEdges">
+            <summary>Gets or sets the pairs of participants.</summary>
+        </member>
+        <member name="P:SAAC.Groups.IndividualPairCharacteristics.PersonGroup">
+            <summary>Gets or sets the values of the group.</summary>
+        </member>
+        <member name="P:SAAC.Groups.IndividualPairCharacteristics.WindowSeconds">
+            <summary>
+            Gets or sets the length of the sliding window the metrics are computed on, in
+            seconds; 0 when it is not known.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.IndividualPairCharacteristics.ForParticipants(System.Int32)">
+            <summary>
+            A graph without metrics for a number of participants, named "1", "2", and so on.
+            </summary>
+            <param name="participantCount">Number of participants.</param>
+            <returns>The graph: a node per participant and an edge per pair.</returns>
+        </member>
+        <member name="M:SAAC.Groups.IndividualPairCharacteristics.ForParticipants(System.Collections.Generic.IEnumerable{System.String})">
+            <summary>A graph without metrics for the participants given.</summary>
+            <param name="ids">Identifier of each participant.</param>
+            <returns>The graph: a node per participant and an edge per pair.</returns>
+        </member>
+        <member name="M:SAAC.Groups.IndividualPairCharacteristics.FindNode(System.String)">
+            <summary>The node of a participant.</summary>
+            <param name="id">Identifier of the participant.</param>
+            <returns>The node, or null when the graph has none for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.IndividualPairCharacteristics.FindEdge(System.String,System.String)">
+            <summary>The edge of two participants.</summary>
+            <param name="a">One participant.</param>
+            <param name="b">The other one.</param>
+            <returns>The edge, or null when the graph has none for them.</returns>
+        </member>
+        <member name="T:SAAC.Groups.NodeSizeMode">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.NodeSizeMode.SpeakingTime">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.NodeSizeMode.MovementScore">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="F:SAAC.Groups.NodeSizeMode.TaskParticipation">
+            <summary>Gets or sets épaisseur min. (px) des arêtes.</summary>
+        </member>
+        <member name="T:SAAC.Groups.PersonEdge">
+            <summary>
+            Edge of the sociogram: what is measured on a pair of participants. The metrics are
+            kept by name (<see cref="T:SAAC.Groups.GraphMetricNames"/>). Those that have a direction, the looks
+            of one participant at the other, are kept once per direction: from <see cref="P:SAAC.Groups.PersonEdge.First"/>
+            to <see cref="P:SAAC.Groups.PersonEdge.Second"/> in <see cref="P:SAAC.Groups.PersonEdge.ForwardMetrics"/>, the other way in
+            <see cref="P:SAAC.Groups.PersonEdge.BackwardMetrics"/>.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.FromId_1">
+            <summary>Gets or sets one participant of the pair.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.ToId_1">
+            <summary>Gets or sets the other participant of the pair.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.FromId_2">
+            <summary>Gets or sets the participant <see cref="P:SAAC.Groups.PersonEdge.ToId_1"/> names: the pair, read the other way.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.ToId_2">
+            <summary>Gets or sets the participant <see cref="P:SAAC.Groups.PersonEdge.FromId_1"/> names: the pair, read the other way.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.Metrics">
+            <summary>
+            Gets or sets the metrics of the pair, by name. A metric that is not computed is absent.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.ForwardMetrics">
+            <summary>Gets or sets the metrics from <see cref="P:SAAC.Groups.PersonEdge.First"/> to <see cref="P:SAAC.Groups.PersonEdge.Second"/>, by name.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.BackwardMetrics">
+            <summary>Gets or sets the metrics from <see cref="P:SAAC.Groups.PersonEdge.Second"/> to <see cref="P:SAAC.Groups.PersonEdge.First"/>, by name.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.First">
+            <summary>
+            Gets the participant of the pair that comes first: the lower number, so that the
+            directions of an edge do not depend on the order its identifiers were given in.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.Second">
+            <summary>Gets the participant of the pair that comes second.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.Proximity">
+            <summary>
+            Gets or sets the distance between the two participants, in metres
+            (<see cref="F:SAAC.Groups.GraphMetricNames.Distance"/>); 0 when it is not known. It places the
+            nodes. The proximity score of the collaboration indices is the metric
+            <see cref="F:SAAC.Groups.GraphMetricNames.Proximity"/>.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.Synchrony">
+            <summary>
+            Gets or sets the synchrony of the movements, in [0, 1]
+            (<see cref="F:SAAC.Groups.GraphMetricNames.Synchrony"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.GazeOnPeers12">
+            <summary>
+            Gets or sets the looks of <see cref="P:SAAC.Groups.PersonEdge.First"/> at <see cref="P:SAAC.Groups.PersonEdge.Second"/>
+            (<see cref="F:SAAC.Groups.GraphMetricNames.GazeOnPeers"/>); 0 when they are not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.GazeOnPeers21">
+            <summary>
+            Gets or sets the looks of <see cref="P:SAAC.Groups.PersonEdge.Second"/> at <see cref="P:SAAC.Groups.PersonEdge.First"/>
+            (<see cref="F:SAAC.Groups.GraphMetricNames.GazeOnPeers"/>); 0 when they are not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.JVAEvent">
+            <summary>
+            Gets or sets the joint visual attention of the pair
+            (<see cref="F:SAAC.Groups.GraphMetricNames.JointVisualAttention"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.JVAIntensity">
+            <summary>
+            Gets or sets the mean duration of the joint visual attention episodes, normalised
+            (<see cref="F:SAAC.Groups.GraphMetricNames.JointVisualAttentionIntensity"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.SpeechEquality">
+            <summary>
+            Gets or sets the equality of the speaking times, -1 when nobody spoke
+            (<see cref="F:SAAC.Groups.GraphMetricNames.SpeechEquality"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonEdge.TaskEquality">
+            <summary>
+            Gets or sets the equality of the participations in the task
+            (<see cref="F:SAAC.Groups.GraphMetricNames.TaskEquality"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.Between(System.String,System.String)">
+            <summary>The edge of two participants.</summary>
+            <param name="a">One participant.</param>
+            <param name="b">The other one.</param>
+            <returns>An edge without metrics.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.Links(System.String,System.String)">
+            <summary>Says whether the edge is the one of two participants.</summary>
+            <param name="a">One participant.</param>
+            <param name="b">The other one.</param>
+            <returns>True when it is, in either order.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.Has(System.String)">
+            <summary>Says whether a metric is computed for this pair.</summary>
+            <param name="metric">Name of the metric.</param>
+            <returns>True when the edge holds a value for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.HasDirected(System.String)">
+            <summary>Says whether a metric with a direction is computed for this pair, in either direction.</summary>
+            <param name="metric">Name of the metric.</param>
+            <returns>True when the edge holds a value for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.Get(System.String,System.Double)">
+            <summary>Reads a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="absent">What to return when the metric is not computed.</param>
+            <returns>The value, or <paramref name="absent"/>.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonEdge.Set(System.String,System.Double)">
+            <summary>Gives a value to a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="value">The value.</param>
+        </member>
+        <member name="T:SAAC.Groups.PersonGroup">
+            <summary>
+            What is measured on the group: the participant who does the most of something, and
+            the scores of the collaboration model. The metrics are kept by name
+            (<see cref="T:SAAC.Groups.GraphMetricNames"/>); one that is not computed is absent.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Metrics">
+            <summary>
+            Gets or sets the metrics of the group, by name. A metric that is not computed is absent.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.ScoreNames">
+            <summary>
+            Gets or sets the names of the metrics that are scores of the collaboration model, in
+            the order they are listed. Empty for the default model
+            (<see cref="P:SAAC.Groups.GraphMetricNames.DefaultScores"/>); to be filled when the model has
+            other dimensions.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.TaskingMost">
+            <summary>
+            Gets or sets the number of the participant who acts most on the task
+            (<see cref="F:SAAC.Groups.GraphMetricNames.TaskingMost"/>); 0 when nobody does or when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.TalkingMost">
+            <summary>
+            Gets or sets the number of the participant who speaks most
+            (<see cref="F:SAAC.Groups.GraphMetricNames.TalkingMost"/>); 0 when nobody does or when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.WatchedMost">
+            <summary>
+            Gets or sets the number of the participant the others look at most
+            (<see cref="F:SAAC.Groups.GraphMetricNames.WatchedMost"/>); 0 when nobody is or when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.LeadVA">
+            <summary>
+            Gets or sets the number of the participant who leads the visual attention
+            (<see cref="F:SAAC.Groups.GraphMetricNames.LeadVisualAttention"/>); 0 when nobody does or when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Dominance_score">
+            <summary>Gets or sets the dominance score (<see cref="F:SAAC.Groups.GraphMetricNames.Dominance"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Ja_score">
+            <summary>Gets or sets the joint attention score (<see cref="F:SAAC.Groups.GraphMetricNames.JointAttention"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Engagement_score">
+            <summary>Gets or sets the engagement score (<see cref="F:SAAC.Groups.GraphMetricNames.Engagement"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Cpm_score">
+            <summary>Gets or sets the communication score (<see cref="F:SAAC.Groups.GraphMetricNames.CommunicationProcessManagement"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Spatial_score">
+            <summary>Gets or sets the spatial score (<see cref="F:SAAC.Groups.GraphMetricNames.SpatialBehaviour"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Dimension2_score">
+            <summary>Gets or sets the mean of the dimension scores (<see cref="F:SAAC.Groups.GraphMetricNames.SecondDimension"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonGroup.Collaboration_score">
+            <summary>Gets or sets the collaboration score (<see cref="F:SAAC.Groups.GraphMetricNames.CollaborationScore"/>); 0 when it is not computed.</summary>
+        </member>
+        <member name="M:SAAC.Groups.PersonGroup.Has(System.String)">
+            <summary>Says whether a metric is computed for the group.</summary>
+            <param name="metric">Name of the metric.</param>
+            <returns>True when the group holds a value for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonGroup.Get(System.String,System.Double)">
+            <summary>Reads a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="absent">What to return when the metric is not computed.</param>
+            <returns>The value, or <paramref name="absent"/>.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonGroup.Set(System.String,System.Double)">
+            <summary>Gives a value to a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="value">The value.</param>
+        </member>
+        <member name="T:SAAC.Groups.PersonNode">
+            <summary>
+            Node of the sociogram: what is measured on one participant. The metrics are kept by
+            name (<see cref="T:SAAC.Groups.GraphMetricNames"/>), so that a node holds the indices that are
+            computed, whichever they are, and nothing for the others.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonNode.Id">
+            <summary>
+            Gets or sets the identifier of the participant, which is the label of the node:
+            "1" for the first participant, "2" for the second one, and so on.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonNode.Metrics">
+            <summary>
+            Gets or sets the metrics of the participant, by name. A metric that is not
+            computed is absent.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonNode.MovementScore">
+            <summary>
+            Gets or sets the physical activity level (<see cref="F:SAAC.Groups.GraphMetricNames.Movement"/>);
+            0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonNode.SpeakingTime">
+            <summary>
+            Gets or sets the share of the window spent speaking, in [0, 1]
+            (<see cref="F:SAAC.Groups.GraphMetricNames.VerbalParticipation"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.PersonNode.TaskParticipation">
+            <summary>
+            Gets or sets the participation in the task
+            (<see cref="F:SAAC.Groups.GraphMetricNames.TaskParticipation"/>); 0 when it is not computed.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.PersonNode.TryGetPlace(System.Boolean,System.Double@,System.Double@)">
+            <summary>
+            The place of the participant in the room, seen from above, in metres.
+            </summary>
+            <param name="mean">True for the mean place over the window of the other metrics, false for the place at the instant.</param>
+            <param name="x">First horizontal coordinate, drawn from left to right.</param>
+            <param name="y">Second horizontal coordinate, drawn from the bottom to the top.</param>
+            <returns>False when the graph does not hold that place.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonNode.Has(System.String)">
+            <summary>Says whether a metric is computed for this participant.</summary>
+            <param name="metric">Name of the metric.</param>
+            <returns>True when the node holds a value for it.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonNode.Get(System.String,System.Double)">
+            <summary>Reads a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="absent">What to return when the metric is not computed.</param>
+            <returns>The value, or <paramref name="absent"/>.</returns>
+        </member>
+        <member name="M:SAAC.Groups.PersonNode.Set(System.String,System.Double)">
+            <summary>Gives a value to a metric.</summary>
+            <param name="metric">Name of the metric.</param>
+            <param name="value">The value.</param>
+        </member>
+        <member name="T:SAAC.Groups.GroupInfo">
+            <summary>
+            Internal class representing group information with timestamp.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.GroupInfo.#ctor(System.UInt32,System.DateTime,System.Collections.Generic.List{System.UInt32})">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.GroupInfo"/> class.
+            </summary>
+            <param name="id">The group identifier.</param>
+            <param name="timestamp">The timestamp of the group.</param>
+            <param name="list">The list of body IDs in the group.</param>
+        </member>
+        <member name="P:SAAC.Groups.GroupInfo.Id">
+            <summary>
+            Gets the group identifier.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInfo.Timestamp">
+            <summary>
+            Gets the timestamp of the group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.GroupInfo.Bodies">
+            <summary>
+            Gets the list of body IDs in the group.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.GroupsHelpers">
+            <summary>
+            Internal helper class providing utility functions for group operations.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.GroupsHelpers.CantorPairing(System.UInt32,System.UInt32)">
+            <summary>
+            Computes a unique identifier for a pair of numbers using Cantor pairing function.
+            </summary>
+            <param name="k1">The first number.</param>
+            <param name="k2">The second number.</param>
+            <returns>A unique identifier for the pair.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GroupsHelpers.CantorParingSequence(System.Collections.Generic.List{System.UInt32})">
+            <summary>
+            Computes a unique identifier for a sequence of numbers using successive Cantor pairing.
+            </summary>
+            <param name="set">The list of numbers.</param>
+            <returns>A unique identifier for the sequence.</returns>
+        </member>
+        <member name="M:SAAC.Groups.GroupsHelpers.ReduceGroups(System.Collections.Generic.Dictionary{System.UInt32,System.Collections.Generic.List{System.UInt32}}@)">
+            <summary>
+            Reduces and merges groups by combining groups that share members.
+            </summary>
+            <param name="groups">The dictionary of groups to reduce.</param>
+        </member>
+        <member name="M:SAAC.Groups.GroupsHelpers.GenerateGroups(System.Collections.Generic.Dictionary{System.UInt32,System.Collections.Generic.List{System.UInt32}}@)">
+            <summary>
+            Generates unique group identifiers using Cantor pairing and reduces overlapping groups.
+            </summary>
+            <param name="groups">The dictionary of groups to process.</param>
+            <returns>A dictionary with unique Cantor-paired identifiers for each reduced group.</returns>
+        </member>
+        <member name="T:SAAC.Groups.InstantGroupsDetector">
+            <summary>
+            Component that detects groups instantly based on proximity (distance threshold between bodies).
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.InstantGroupsDetector.#ctor(Microsoft.Psi.Pipeline,SAAC.Groups.InstantGroupsDetectorConfiguration,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.InstantGroupsDetector"/> class.
+            </summary>
+            <param name="parent">The parent pipeline.</param>
+            <param name="configuration">Optional configuration for the detector.</param>
+            <param name="name">The name of the component.</param>
+        </member>
+        <member name="P:SAAC.Groups.InstantGroupsDetector.Out">
+            <summary>
+            Gets the emitter of detected groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantGroupsDetector.In">
+            <summary>
+            Gets the receiver that encapsulates the input positions.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantGroupsDetector.Configuration">
+            <summary>
+            Gets the configuration for the detector.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.InstantGroupsDetector.Process(System.Collections.Generic.Dictionary{System.UInt32,MathNet.Spatial.Euclidean.Vector3D},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes body positions and detects groups based on distance threshold.
+            </summary>
+            <param name="skeletons">Dictionary of body positions.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="M:SAAC.Groups.InstantGroupsDetector.ReduceGroups(System.Collections.Generic.Dictionary{System.UInt32,System.Collections.Generic.List{System.UInt32}}@)">
+            <summary>
+            Reduces and merges overlapping groups by combining groups that share members.
+            </summary>
+            <param name="groups">The dictionary of groups to reduce.</param>
+        </member>
+        <member name="T:SAAC.Groups.InstantGroupsDetectorConfiguration">
+            <summary>
+            Configuration for the instant groups detector.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.InstantGroupsDetectorConfiguration.DistanceThreshold">
+            <summary>
+            Gets or sets the distance threshold between skeletons to constitute a group.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.IntegratedGroupsDetector">
+            <summary>
+            Component that integrates instant group detections over time to produce stable group assignments.
+            Uses weighted scoring based on temporal consistency to determine group membership.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.IntegratedGroupsDetector.#ctor(Microsoft.Psi.Pipeline,SAAC.Groups.IntegratedGroupsDetectorConfiguration,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.IntegratedGroupsDetector"/> class.
+            </summary>
+            <param name="parent">The parent pipeline.</param>
+            <param name="configuration">Optional configuration for the detector.</param>
+            <param name="name">The name of the component.</param>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetector.Out">
+            <summary>
+            Gets the emitter of detected integrated groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetector.In">
+            <summary>
+            Gets the receiver that encapsulates the instant groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetector.InRemovedBodies">
+            <summary>
+            Gets the receiver for removed body IDs.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.IntegratedGroupsDetector.Process(System.Collections.Generic.Dictionary{System.UInt32,System.Collections.Generic.List{System.UInt32}},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes instant group detections and integrates them over time using weighted scoring.
+            </summary>
+            <param name="instantGroups">Dictionary of instant group detections.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="M:SAAC.Groups.IntegratedGroupsDetector.ProcessBodiesRemoving(System.Collections.Generic.List{System.UInt32},Microsoft.Psi.Envelope)">
+            <summary>
+            Processes removal of bodies from tracking, cleaning up associated group data.
+            </summary>
+            <param name="idsToRemove">List of body IDs to remove.</param>
+            <param name="envelope">The message envelope.</param>
+        </member>
+        <member name="T:SAAC.Groups.IntegratedGroupsDetectorConfiguration">
+            <summary>
+            Configuration for the integrated groups detector.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetectorConfiguration.IncreaseWeightFactor">
+            <summary>
+            Gets or sets the weight increase factor when a body is found in a group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetectorConfiguration.DecreaseWeightFactor">
+            <summary>
+            Gets or sets the weight decrease factor when a body is not found in a group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.IntegratedGroupsDetectorConfiguration.IntersectionPercentage">
+            <summary>
+            Gets or sets the intersection percentage threshold for merging groups.
+            When two groups have an intersection percentage above this value, the smaller group is removed.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.SimplifiedFlockGroup">
+            <summary>
+            Represents a simplified flock group with spatial and movement properties.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.SimplifiedFlockGroup.#ctor(System.UInt32,System.Collections.Generic.List{System.UInt32},MathNet.Spatial.Euclidean.Circle2D,MathNet.Spatial.Euclidean.Vector2D,System.Double)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.SimplifiedFlockGroup"/> class.
+            </summary>
+            <param name="id">The group identifier.</param>
+            <param name="constituants">The list of body IDs in the group.</param>
+            <param name="area">The circular area encompassing the group.</param>
+            <param name="direction">The average direction of movement.</param>
+            <param name="velocity">The average velocity of the group.</param>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroup.Id">
+            <summary>
+            Gets the group identifier.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroup.Constituants">
+            <summary>
+            Gets the list of body IDs that constitute the group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroup.Area">
+            <summary>
+            Gets the circular area encompassing the group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroup.Direction">
+            <summary>
+            Gets the average direction of movement.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroup.Velocity">
+            <summary>
+            Gets the average velocity of the group.
+            </summary>
+        </member>
+        <member name="T:SAAC.Groups.SimplifiedFlockGroupsDetector">
+            <summary>
+            Simplified model detection for detecting groups inspired by Flock agents (https://ieeexplore.ieee.org/abstract/document/1605401).
+            Uses a variant of Reynolds rules:
+            * Flock Centering: attempt to stay close to nearby flockmates (distance).
+            * Collision Avoidance: avoid collisions with nearby flockmates (same direction in movement).
+            * Velocity Matching: attempt to match velocity with nearby flockmates (velocity).
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.SimplifiedFlockGroupsDetector.#ctor(Microsoft.Psi.Pipeline,SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration,System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:SAAC.Groups.SimplifiedFlockGroupsDetector"/> class.
+            </summary>
+            <param name="parent">The parent pipeline.</param>
+            <param name="configuration">Optional configuration for the detector.</param>
+            <param name="name">The name of the component.</param>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetector.Out">
+            <summary>
+            Gets the emitter of detected groups.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetector.In">
+            <summary>
+            Gets the receiver that encapsulates the input dictionary of body positions.
+            </summary>
+        </member>
+        <member name="M:SAAC.Groups.SimplifiedFlockGroupsDetector.ToString">
+            <inheritdoc/>
+        </member>
+        <member name="T:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration">
+            <summary>
+            Configuration for the simplified flock groups detector.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration.QueueMaxCount">
+            <summary>
+            Gets or sets the maximum size of the bodies queues for calculation.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration.DistanceWeight">
+            <summary>
+            Gets or sets the distance weight for the model to constitute a group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration.VelocityWeight">
+            <summary>
+            Gets or sets the velocity weight for the model to constitute a group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration.DirectionWeight">
+            <summary>
+            Gets or sets the direction weight for the model to constitute a group.
+            </summary>
+        </member>
+        <member name="P:SAAC.Groups.SimplifiedFlockGroupsDetectorConfiguration.ModelThreshold">
+            <summary>
+            Gets or sets the model value threshold to constitute a group.
+            </summary>
+        </member>
+    </members>
+</doc>
