@@ -1225,6 +1225,7 @@ namespace ServerApplication
                     IsCollaborationProfileEnabled = this.IsCollaborationProfileEnabled,
                 };
                 this.realTimeProcessingUseCase.Configuration = config;
+                this.realTimeProcessingUseCase.sessionNumber = int.Parse(this.SessionID);
                 this.realTimeProcessingUseCase.StoreMode = (RendezVousPipeline.StoreMode)this.StoreModeComboBox.SelectedIndex;
                 if (!this.PrepareCollaborationProcess())
                 {
