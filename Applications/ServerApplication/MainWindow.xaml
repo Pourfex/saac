@@ -129,6 +129,9 @@
                             <Label Grid.Row="8" Grid.Column="0" Content="Get Streams Logs :" FontWeight="Bold"/>
                             <CheckBox Grid.Row="8" Grid.Column="1" Name="DebugCheckbox" IsChecked="{Binding IsDebug}" Click="CkbDebug" Margin="0,10,0,0"/>
 
+                            <Label Grid.Row="8" Grid.Column="1" Content="Session ID :" FontWeight="Bold" Margin="27,4,4,3"/>
+                            <TextBox Grid.Row="8" Grid.Column="2" TextWrapping="Wrap" Text="{Binding Path = SessionID}" Margin="0,5,5,2"/>
+
                             <Label Grid.Row="9" Grid.Column="0" Content="Extra Configuration :" FontWeight="Bold" Margin="1,2,17,1"/>
                             <TextBox Grid.Row="9" Grid.ColumnSpan="2" TextWrapping="Wrap" Text="{Binding Path = ExternalConfigurationDirectory}" Name="ExternalConfigurationTextBox" Margin="0,5,0,3" Grid.Column="1"/>
                             <Button Grid.Row="9" Grid.Column="3" Content="Browse" Click="BtnBrowseExternalConfiguration_Click" Margin="0,4,2,3"/>
@@ -352,6 +355,7 @@
                                     </TransformGroup>
                                 </TextBox.RenderTransform>
                             </TextBox>
+                            <Button Content="Start Post Processing" Grid.Row="1" Grid.Column="2" Click="BtnStartPostProcessNameClick" Margin="0,5,7,10"/>
                         </Grid>
                     </GroupBox>
                     <GroupBox Header="Actions" Name="ActionsGroupBox" FontWeight="Bold" Grid.Row="2" Grid.Column="1"  Margin="10,41,10,13" Grid.ColumnSpan="3">
@@ -368,7 +372,6 @@
 
                 </Grid>
             </TabItem>
-
 
         </TabControl>
     </UserControl>
