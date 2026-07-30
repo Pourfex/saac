@@ -19,7 +19,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Needed so DatasetLoader Type.GetType can resolve AudioBuffer streams in Casper stores -->
+    <PackageReference Include="Microsoft.Psi.Audio" Version="0.19.100.1-beta-SAAC" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Components\SaacAnalysisCasper.Core\SaacAnalysisCasper.Core.csproj" />
     <ProjectReference Include="..\..\Components\PipelineServices\PipelineServices.csproj" />
+    <ProjectReference Include="..\..\Components\PsiFormats\PsiFormats.csproj" />
   </ItemGroup>
 </Project>
