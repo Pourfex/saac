@@ -151,14 +151,16 @@ namespace SaacAnalysisCasper.Replay.Services
 
             EnsureStreamTypeAssembliesLoaded();
 
+            string datasetIdentity = Path.Combine(datasetPath, datasetName);
             ReplayPipeline replay = null;
+            DerivedExportSession exportSession = null;
             try
             {
                 replay = new ReplayPipeline(config, log: this.log);
                 if (replay.Dataset == null)
                 {
                     throw new InvalidOperationException(
-                        "ReplayPipeline opened with null Dataset for " + Path.Combine(datasetPath, datasetName)
+                        "ReplayPipeline opened with null Dataset for " + datasetIdentity
                         + ". Missing/invalid .pds must not create a silent empty capture.");
                 }
 
@@ -194,8 +196,16 @@ namespace SaacAnalysisCasper.Replay.Services
                 this.log("Dataset connectors loaded for session '" + sessionName + "'.");
 
                 DualUserGraphBinder binder = new DualUserGraphBinder(this.log);
-                binder.Bind(replay, runConfig);
-                this.log("Dual-user graph binding complete.");
+                IReadOnlyList<BoundBranchDescriptor> branches = binder.Bind(replay, runConfig);
+                this.log("Dual-user graph binding complete (" + branches.Count + " exportable branch(es)).");
+
+                exportSession = new DerivedExportSession(this.log);
+                exportSession.AttachExports(
+                    replay.Pipeline,
+                    branches,
+                    runConfig,
+                    sessionName,
+                    datasetIdentity);
 
                 this.log("Starting FullSpeed offline replay.");
                 if (!replay.RunPipelineAndSubpipelines())
@@ -204,30 +214,78 @@ namespace SaacAnalysisCasper.Replay.Services
                 }
 
                 replay.Pipeline.WaitAll();
+                exportSession.CloseWriters();
+                exportSession.EnsureExportRowsPresent();
+
+                // Release PsiExporter file locks before declaring success or running abort cleanup.
+                this.StopAndDisposeReplay(ref replay);
+
+                exportSession.MarkCompleted();
+                exportSession.LogSuccessPaths();
                 this.log("Replay completed.");
             }
-            finally
+            catch
             {
-                if (replay != null)
+                this.StopAndDisposeReplay(ref replay);
+
+                if (exportSession != null && !exportSession.CompletedSuccessfully)
                 {
                     try
                     {
-                        replay.Stop(maxWaitingTime: 5000);
+                        exportSession.CleanupIncomplete();
                     }
-                    catch (Exception ex)
+                    catch (Exception cleanupEx)
                     {
-                        this.TryLog("Stop warning: " + ex.Message);
-                    }
-
-                    try
-                    {
-                        replay.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        this.TryLog("Dispose warning: " + ex.Message);
+                        this.TryLog("Export incomplete cleanup warning: " + cleanupEx.Message);
                     }
                 }
+
+                throw;
+            }
+            finally
+            {
+                if (exportSession != null)
+                {
+                    try
+                    {
+                        exportSession.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        this.TryLog("Export session dispose warning: " + ex.Message);
+                    }
+                }
+
+                this.StopAndDisposeReplay(ref replay);
+            }
+        }
+
+        private void StopAndDisposeReplay(ref ReplayPipeline replay)
+        {
+            if (replay == null)
+            {
+                return;
+            }
+
+            ReplayPipeline local = replay;
+            replay = null;
+
+            try
+            {
+                local.Stop(maxWaitingTime: 5000);
+            }
+            catch (Exception ex)
+            {
+                this.TryLog("Stop warning: " + ex.Message);
+            }
+
+            try
+            {
+                local.Dispose();
+            }
+            catch (Exception ex)
+            {
+                this.TryLog("Dispose warning: " + ex.Message);
             }
         }
 

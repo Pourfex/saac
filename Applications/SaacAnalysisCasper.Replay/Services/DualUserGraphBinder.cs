@@ -41,7 +41,8 @@ namespace SaacAnalysisCasper.Replay.Services
         /// </summary>
         /// <param name="replay">Loaded Replay pipeline with connectors populated.</param>
         /// <param name="runConfig">Core run-config selecting graph ids.</param>
-        public void Bind(ReplayPipeline replay, AnalysisRunConfig runConfig)
+        /// <returns>Bound branch descriptors with exportable emitters (M1/M2 kept separate).</returns>
+        public IReadOnlyList<BoundBranchDescriptor> Bind(ReplayPipeline replay, AnalysisRunConfig runConfig)
         {
             if (replay == null)
             {
@@ -73,6 +74,7 @@ namespace SaacAnalysisCasper.Replay.Services
             this.log("Topic index built: " + topicIndex.Count + " stream(s) across "
                 + replay.Connectors.Count + " store key(s).");
 
+            List<BoundBranchDescriptor> boundBranches = new List<BoundBranchDescriptor>();
             HashSet<string> seenGraphIds = new HashSet<string>(StringComparer.Ordinal);
             string[] graphs = runConfig.Graphs;
             for (int g = 0; g < graphs.Length; g++)
@@ -96,8 +98,19 @@ namespace SaacAnalysisCasper.Replay.Services
 
                     this.BindParticipant(composition, participant, topicIndex, replay.Pipeline);
                     this.AttachProofSink(composition);
+
+                    PocBindableComposition poc = composition as PocBindableComposition;
+                    if (poc != null)
+                    {
+                        boundBranches.Add(new BoundBranchDescriptor(
+                            poc.GraphId,
+                            poc.Participant,
+                            poc.MessageCountOut));
+                    }
                 }
             }
+
+            return boundBranches;
         }
 
         private void AttachProofSink(IBindableComposition composition)
