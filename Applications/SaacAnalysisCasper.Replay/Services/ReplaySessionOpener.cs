@@ -192,7 +192,12 @@ namespace SaacAnalysisCasper.Replay.Services
                 }
 
                 this.log("Dataset connectors loaded for session '" + sessionName + "'.");
-                this.log("Starting FullSpeed offline replay (no analysis wiring yet — Story 1.4).");
+
+                DualUserGraphBinder binder = new DualUserGraphBinder(this.log);
+                binder.Bind(replay, runConfig);
+                this.log("Dual-user graph binding complete.");
+
+                this.log("Starting FullSpeed offline replay.");
                 if (!replay.RunPipelineAndSubpipelines())
                 {
                     throw new InvalidOperationException("RunPipelineAndSubpipelines failed to start the offline replay pipeline.");
