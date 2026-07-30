@@ -1,0 +1,26 @@
+---
+description: Push and pull only against Pourfex/saac (github remote), never SaacPSI/saac origin
+alwaysApply: true
+---
+
+# Git remote for saac
+
+When pushing, pulling, or setting upstream for this repo, use **only** Pourfex/saac:
+
+- Preferred remote name: `github` → `git@github.com:Pourfex/saac.git`
+- HTTPS equivalent (if SSH key fails): `https://github.com/Pourfex/saac.git`
+- Do **not** use `origin` (`git@github.com:SaacPSI/saac.git`) unless the user explicitly asks
+
+```bash
+# ✅ GOOD
+git push github HEAD
+git push -u github HEAD
+git push https://github.com/Pourfex/saac.git HEAD:<branch>
+
+# ❌ BAD
+git push origin HEAD
+git push -u origin HEAD
+```
+
+- Do not change `git remote` URLs or add remotes unless the user asks.
+- PRs/issues for this work: `--repo Pourfex/saac`.
