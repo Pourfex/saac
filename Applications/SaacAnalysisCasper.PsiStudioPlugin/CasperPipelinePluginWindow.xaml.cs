@@ -11,6 +11,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
     using Microsoft.Psi.Data;
     using Microsoft.Psi.PsiStudio.PipelinePlugin;
     using SaacAnalysisCasper.Core;
+    using SaacAnalysisCasper.Core.Config;
 
     /// <summary>
     /// Thin PsiStudio pipeline plugin stub. Must derive from <see cref="Window"/> for discovery.
@@ -23,6 +24,9 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         /// </summary>
         public CasperPipelinePluginWindow()
         {
+            // Story 1.2: hosts deserialize Core schema only (UI binding is Story 1.8).
+            _ = AnalysisRunConfig.Parse("{\"windowMs\":1000,\"outputRoot\":\"stub\",\"graphs\":[\"Poc\"]}");
+
             try
             {
                 this.InitializeComponent();

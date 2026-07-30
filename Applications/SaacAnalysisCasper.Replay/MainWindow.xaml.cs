@@ -2,10 +2,11 @@
 // This software is distributed under the CeCILL-C FREE SOFTWARE LICENSE AGREEMENT.
 // See https://cecill.info/licences/Licence_CeCILL-C_V1-en.html for details.
 
-using System.Windows;
-
 namespace SaacAnalysisCasper.Replay
 {
+    using System.Windows;
+    using SaacAnalysisCasper.Core.Config;
+
     /// <summary>
     /// Placeholder main window until session pick / offline replay open (Story 1.3).
     /// </summary>
@@ -17,6 +18,9 @@ namespace SaacAnalysisCasper.Replay
         public MainWindow()
         {
             this.InitializeComponent();
+
+            // Story 1.2: hosts deserialize Core schema only (UI binding is Story 1.3).
+            _ = AnalysisRunConfig.Parse("{\"windowMs\":1000,\"outputRoot\":\"stub\",\"graphs\":[\"Poc\"]}");
         }
     }
 }
