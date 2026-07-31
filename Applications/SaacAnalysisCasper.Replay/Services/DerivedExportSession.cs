@@ -12,12 +12,13 @@ namespace SaacAnalysisCasper.Replay.Services
     using SAAC;
     using SaacAnalysisCasper.Core.Config;
     using SaacAnalysisCasper.Core.Export;
+    using SaacAnalysisCasper.Core.Mapping;
     using SaacAnalysisCasper.Core.Poc;
 
     /// <summary>
     /// Host-owned derived store + CSV sinks for a Replay run (AD-5 / AD-9).
     /// Opens paths/stores; Core helpers format names and write rows.
-    /// Per-W attribution: one CSV per branch (graph × participant × W) via <see cref="ExportPathFormatter.FormatCsvPath"/>.
+    /// Per-W attribution: one CSV per branch (graph × session × participant × W) via <see cref="ExportPathFormatter.FormatCsvPath"/>.
     /// </summary>
     public sealed class DerivedExportSession : IDisposable
     {
@@ -68,7 +69,7 @@ namespace SaacAnalysisCasper.Replay.Services
         public IReadOnlyList<string> StoreDirectories => this.storeDirectories;
 
         /// <summary>
-        /// Creates output root, derived store(s), and per graph×participant×W CSV writers;
+        /// Creates output root, derived store(s), and per graph×session×participant×W CSV writers;
         /// wires store Write + CSV <c>Do</c> sinks before pipeline start.
         /// </summary>
         /// <param name="pipeline">Analysis pipeline that owns emitters.</param>
@@ -83,6 +84,11 @@ namespace SaacAnalysisCasper.Replay.Services
             string sessionName,
             string datasetIdentity)
         {
+            if (this.disposed)
+            {
+                throw new ObjectDisposedException(nameof(DerivedExportSession));
+            }
+
             if (pipeline == null)
             {
                 throw new ArgumentNullException(nameof(pipeline));
@@ -103,16 +109,24 @@ namespace SaacAnalysisCasper.Replay.Services
                 throw new ArgumentException("sessionName must be non-empty.", nameof(sessionName));
             }
 
+            if (string.IsNullOrWhiteSpace(runConfig.OutputRoot))
+            {
+                throw new ArgumentException("runConfig.OutputRoot must be non-empty.", nameof(runConfig));
+            }
+
             if (branches.Count == 0)
             {
                 throw new InvalidOperationException(
                     "No bound branches available for derived store/CSV export.");
             }
 
+            RequireBothParticipants(branches);
+
             Directory.CreateDirectory(runConfig.OutputRoot);
 
             Dictionary<string, PsiExporter> exportersByGraph =
                 new Dictionary<string, PsiExporter>(StringComparer.Ordinal);
+            HashSet<string> csvPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < branches.Count; i++)
             {
@@ -134,9 +148,19 @@ namespace SaacAnalysisCasper.Replay.Services
 
                     Directory.CreateDirectory(storeDirectory);
 
-                    // Path = attributed folder; leaf store name is fixed so Psi does not nest
-                    // {name}/{name}/ under the same leaf string used as both path and store name.
-                    PsiExporter exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
+                    PsiExporter exporter;
+                    try
+                    {
+                        // Path = attributed folder; leaf store name is fixed so Psi does not nest
+                        // {name}/{name}/ under the same leaf string used as both path and store name.
+                        exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
+                    }
+                    catch
+                    {
+                        TryDeleteDirectory(storeDirectory);
+                        throw;
+                    }
+
                     exportersByGraph.Add(branch.GraphId, exporter);
                     this.storeDirectories.Add(storeDirectory);
 
@@ -170,16 +194,27 @@ namespace SaacAnalysisCasper.Replay.Services
                 string csvPath = ExportPathFormatter.FormatCsvPath(
                     runConfig.OutputRoot,
                     branch.GraphId,
+                    sessionName,
                     branch.Participant,
                     branch.WindowMs);
 
+                if (!csvPathSet.Add(csvPath))
+                {
+                    throw new InvalidOperationException(
+                        "Duplicate CSV export path '" + csvPath
+                        + "' — each graph×session×participant×W branch must map to a unique file.");
+                }
+
                 StreamWriter streamWriter = new StreamWriter(csvPath, append: false, CsvExportFormat.Utf8WithoutBom);
-                CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
-                csvWriter.WriteCoincidenceHeader();
+
+                // Track before WriteHeader so abort cleanup sees the file if header write fails.
                 this.streamWriters.Add(streamWriter);
                 this.csvPaths.Add(csvPath);
                 this.rowsByCsvPath[csvPath] = 0;
                 this.requireRowsByCsvPath[csvPath] = branch.ExpectCoincidenceRows;
+
+                CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
+                csvWriter.WriteCoincidenceHeader();
 
                 CsvExportWriter capturedWriter = csvWriter;
                 string capturedPath = csvPath;
@@ -275,6 +310,12 @@ namespace SaacAnalysisCasper.Replay.Services
         /// </summary>
         public void MarkCompleted()
         {
+            if (!this.writersClosed)
+            {
+                throw new InvalidOperationException(
+                    "MarkCompleted requires CloseWriters first so success is not declared with open CSV handles.");
+            }
+
             this.completedSuccessfully = true;
         }
 
@@ -291,6 +332,7 @@ namespace SaacAnalysisCasper.Replay.Services
                 }
 
                 this.writersClosed = true;
+                Exception? firstFailure = null;
                 for (int i = 0; i < this.streamWriters.Count; i++)
                 {
                     StreamWriter? writer = this.streamWriters[i];
@@ -306,10 +348,22 @@ namespace SaacAnalysisCasper.Replay.Services
                     }
                     catch (Exception ex)
                     {
-                        this.TryLog("CSV writer close warning: " + ex.Message);
+                        if (firstFailure == null)
+                        {
+                            firstFailure = ex;
+                        }
+
+                        this.TryLog("CSV writer close failure: " + ex.Message);
                     }
 
                     this.streamWriters[i] = null;
+                }
+
+                if (firstFailure != null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to flush/close one or more CSV writers; refusing to mark export success.",
+                        firstFailure);
                 }
             }
         }
@@ -325,7 +379,15 @@ namespace SaacAnalysisCasper.Replay.Services
                 return;
             }
 
-            this.CloseWriters();
+            try
+            {
+                this.CloseWriters();
+            }
+            catch (Exception ex)
+            {
+                this.TryLog("CSV close during incomplete cleanup: " + ex.Message);
+            }
+
             IncompleteExportCleanup.MarkIncompleteOrDelete(this.csvPaths, this.TryLog);
             for (int i = 0; i < this.storeDirectories.Count; i++)
             {
@@ -365,7 +427,58 @@ namespace SaacAnalysisCasper.Replay.Services
             }
             else
             {
-                this.CloseWriters();
+                try
+                {
+                    this.CloseWriters();
+                }
+                catch (Exception ex)
+                {
+                    this.TryLog("CSV close during dispose: " + ex.Message);
+                }
+            }
+        }
+
+        private static void RequireBothParticipants(IReadOnlyList<BoundBranchDescriptor> branches)
+        {
+            bool hasM1 = false;
+            bool hasM2 = false;
+            for (int i = 0; i < branches.Count; i++)
+            {
+                BoundBranchDescriptor branch = branches[i];
+                if (branch == null)
+                {
+                    continue;
+                }
+
+                if (branch.Participant == ParticipantId.M1)
+                {
+                    hasM1 = true;
+                }
+                else if (branch.Participant == ParticipantId.M2)
+                {
+                    hasM2 = true;
+                }
+            }
+
+            if (!hasM1 || !hasM2)
+            {
+                throw new InvalidOperationException(
+                    "Derived export requires both M1 and M2 bound branches; refusing one-sided success.");
+            }
+        }
+
+        private static void TryDeleteDirectory(string directory)
+        {
+            try
+            {
+                if (Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort orphan cleanup; caller still rethrows the original create failure.
             }
         }
 

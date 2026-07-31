@@ -162,6 +162,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                 string csvPath = ExportPathFormatter.FormatCsvPath(
                     runConfig.OutputRoot,
                     branch.GraphId,
+                    sessionName,
                     branch.Participant,
                     branch.WindowMs);
 

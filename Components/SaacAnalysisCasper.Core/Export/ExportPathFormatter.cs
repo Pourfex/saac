@@ -29,23 +29,32 @@ namespace SaacAnalysisCasper.Core.Export
         }
 
         /// <summary>
-        /// Formats a CSV output path: <c>{outputRoot}/{graphId}_{participant}_W{Wms}.csv</c>.
+        /// Formats a CSV output path: <c>{outputRoot}/{graphId}_{sessionId}_{participant}_W{Wms}.csv</c>.
+        /// Session id is included so a shared <c>outputRoot</c> cannot overwrite CSVs across captures.
         /// </summary>
         /// <param name="outputRoot">Host output root directory.</param>
         /// <param name="graphId">Graph id.</param>
+        /// <param name="sessionId">Session/dataset identity for attribution.</param>
         /// <param name="participant">Participant branch.</param>
         /// <param name="windowMs">Window length in milliseconds (W).</param>
         /// <returns>Full CSV file path.</returns>
-        public static string FormatCsvPath(string outputRoot, string graphId, ParticipantId participant, int windowMs)
+        public static string FormatCsvPath(
+            string outputRoot,
+            string graphId,
+            string sessionId,
+            ParticipantId participant,
+            int windowMs)
         {
             RequireNonEmpty(outputRoot, nameof(outputRoot));
             RequireNonEmpty(graphId, nameof(graphId));
+            RequireNonEmpty(sessionId, nameof(sessionId));
             if (windowMs <= 0)
             {
                 throw new ArgumentException("windowMs must be a positive duration in milliseconds.", nameof(windowMs));
             }
 
-            string fileName = graphId + "_" + participant.ToString() + "_W" + windowMs.ToString(CultureInfo.InvariantCulture) + ".csv";
+            string fileName = graphId + "_" + sessionId + "_" + participant.ToString()
+                + "_W" + windowMs.ToString(CultureInfo.InvariantCulture) + ".csv";
             return Path.Combine(outputRoot, fileName);
         }
 
