@@ -9,6 +9,7 @@ namespace SaacAnalysisCasper.Core.Config
     using System.IO;
     using System.Linq;
     using Newtonsoft.Json;
+    using SaacAnalysisCasper.Core.Windowing;
 
     /// <summary>
     /// Core-owned analysis run-config (AD-8). Hosts deserialize this schema only — no host-local DTO.
@@ -129,21 +130,16 @@ namespace SaacAnalysisCasper.Core.Config
                     "Run-config requires exactly one of 'windowMs' (single value) or non-empty 'windowMsSweep' (array), not both and not neither.");
             }
 
-            // Positive-duration sanity only; W bounds [100 ms, 2 min] are Story 1.6.
-            if (hasWindowMs && this.WindowMs.Value <= 0)
+            if (hasWindowMs)
             {
-                throw new InvalidOperationException("Run-config 'windowMs' must be a positive duration in milliseconds.");
+                HoppingWindowPolicy.ValidateWindowMs(this.WindowMs.Value, "windowMs");
             }
 
             if (hasWindowMsSweep)
             {
                 for (int i = 0; i < this.WindowMsSweep.Count; i++)
                 {
-                    if (this.WindowMsSweep[i] <= 0)
-                    {
-                        throw new InvalidOperationException(
-                            "Run-config 'windowMsSweep' entries must be positive durations in milliseconds.");
-                    }
+                    HoppingWindowPolicy.ValidateWindowMs(this.WindowMsSweep[i], "windowMsSweep[" + i + "]");
                 }
             }
         }
