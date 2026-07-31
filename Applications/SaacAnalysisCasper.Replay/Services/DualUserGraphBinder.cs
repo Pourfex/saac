@@ -244,7 +244,9 @@ namespace SaacAnalysisCasper.Replay.Services
             {
                 if (storeEntry.Value == null)
                 {
-                    continue;
+                    throw new InvalidOperationException(
+                        "Null connector map under store key '" + storeEntry.Key
+                        + "'; refusing to drop required topics.");
                 }
 
                 foreach (KeyValuePair<string, ConnectorInfo> streamEntry in storeEntry.Value)
@@ -286,6 +288,13 @@ namespace SaacAnalysisCasper.Replay.Services
             for (int i = 0; i < roles.Count; i++)
             {
                 string roleId = roles[i];
+                if (string.IsNullOrWhiteSpace(roleId))
+                {
+                    throw new InvalidOperationException(
+                        "Invalid required port role id (null/whitespace) for composition "
+                        + composition.GraphId + "/" + participant + ".");
+                }
+
                 string topic = this.portTopicMap.GetTopic(roleId, participant);
 
                 if (!topicIndex.TryGetValue(topic, out ConnectorInfo info))
@@ -311,13 +320,32 @@ namespace SaacAnalysisCasper.Replay.Services
                     "Connector '" + info.SourceName + "' has null DataType; cannot CreateBridge.");
             }
 
-            MethodInfo createBridge = typeof(ConnectorInfo).GetMethod("CreateBridge");
-            if (createBridge == null)
+            MethodInfo createBridge;
+            MethodInfo typed;
+            try
             {
-                throw new InvalidOperationException("ConnectorInfo.CreateBridge method not found.");
+                createBridge = typeof(ConnectorInfo).GetMethod("CreateBridge");
+                if (createBridge == null)
+                {
+                    throw new InvalidOperationException("ConnectorInfo.CreateBridge method not found.");
+                }
+
+                typed = createBridge.MakeGenericMethod(info.DataType);
+            }
+            catch (AmbiguousMatchException ex)
+            {
+                throw new InvalidOperationException(
+                    "CreateBridge overload resolution failed for topic '" + info.SourceName + "'.",
+                    ex);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(
+                    "CreateBridge cannot be constructed for topic '" + info.SourceName
+                    + "' with DataType '" + info.DataType.FullName + "'.",
+                    ex);
             }
 
-            MethodInfo typed = createBridge.MakeGenericMethod(info.DataType);
             try
             {
                 object bridge = typed.Invoke(info, new object[] { analysisPipeline });

@@ -46,7 +46,7 @@ namespace SaacAnalysisCasper.Replay.Services
             List<string> names = new List<string>();
             foreach (Session session in dataset.Sessions)
             {
-                if (session != null && !string.IsNullOrEmpty(session.Name))
+                if (session != null && !string.IsNullOrWhiteSpace(session.Name))
                 {
                     names.Add(session.Name);
                 }

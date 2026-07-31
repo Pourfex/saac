@@ -83,7 +83,16 @@ namespace SaacAnalysisCasper.Replay
             string current = this.RunConfigPathTextBox.Text;
             if (!string.IsNullOrWhiteSpace(current))
             {
-                string dir = Path.GetDirectoryName(current);
+                string dir = null;
+                try
+                {
+                    dir = Path.GetDirectoryName(current);
+                }
+                catch (ArgumentException)
+                {
+                    dir = null;
+                }
+
                 if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
                 {
                     dialog.InitialDirectory = dir;
@@ -150,26 +159,25 @@ namespace SaacAnalysisCasper.Replay
                 return;
             }
 
-            this.isRunning = true;
-            this.SetUiEnabled(false);
-            this.StatusTextBlock.Text = "Running…";
-            this.AppendLog("--- Run started ---");
-
             List<string> sessionsSnapshot = new List<string>(this.sessionNames);
             try
             {
+                this.isRunning = true;
+                this.SetUiEnabled(false);
+                this.SetStatusText("Running…");
+                this.AppendLog("--- Run started ---");
+
                 await Task.Run(() =>
                 {
                     ReplaySessionOpener opener = new ReplaySessionOpener(this.AppendLogFromBackground);
                     opener.OpenAndSmokeRun(pdsPath, selectedSession, runConfig, sessionsSnapshot);
                 }).ConfigureAwait(true);
 
-                this.StatusTextBlock.Text = "Done";
+                this.SetStatusText("Done");
                 this.AppendLog("--- Run finished ---");
             }
             catch (Exception ex)
             {
-                this.StatusTextBlock.Text = "Failed";
                 this.Fail(ex.Message);
             }
             finally
@@ -224,12 +232,22 @@ namespace SaacAnalysisCasper.Replay
 
         private void Fail(string message, bool showMessageBox = true)
         {
-            this.StatusTextBlock.Text = "Failed";
+            this.SetStatusText("Failed");
             this.AppendLog("ERROR: " + message);
             if (showMessageBox && !this.Dispatcher.HasShutdownStarted)
             {
                 MessageBox.Show(this, message, "SaacAnalysisCasper Replay", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
+        }
+
+        private void SetStatusText(string text)
+        {
+            if (this.Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            this.StatusTextBlock.Text = text;
         }
 
         private void AppendLog(string message)
@@ -253,7 +271,15 @@ namespace SaacAnalysisCasper.Replay
 
             if (!this.Dispatcher.CheckAccess())
             {
-                this.Dispatcher.BeginInvoke(new Action(() => this.AppendLog(message)));
+                try
+                {
+                    this.Dispatcher.BeginInvoke(new Action(() => this.AppendLog(message)));
+                }
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher shutting down between the check and BeginInvoke.
+                }
+
                 return;
             }
 
