@@ -65,7 +65,7 @@ namespace SaacAnalysisCasper.Replay.Services
                     "Replay connectors are empty after LoadDatasetAndConnectors; cannot bind required ports.");
             }
 
-            if (runConfig.Graphs == null || runConfig.Graphs.Length == 0)
+            if (runConfig.Graphs == null || runConfig.Graphs.Count == 0)
             {
                 throw new InvalidOperationException("Run-config graphs must be non-empty before dual-user bind.");
             }
@@ -76,8 +76,8 @@ namespace SaacAnalysisCasper.Replay.Services
 
             List<BoundBranchDescriptor> boundBranches = new List<BoundBranchDescriptor>();
             HashSet<string> seenGraphIds = new HashSet<string>(StringComparer.Ordinal);
-            string[] graphs = runConfig.Graphs;
-            for (int g = 0; g < graphs.Length; g++)
+            IReadOnlyList<string> graphs = runConfig.Graphs;
+            for (int g = 0; g < graphs.Count; g++)
             {
                 string graphId = graphs[g];
                 if (!seenGraphIds.Add(graphId))

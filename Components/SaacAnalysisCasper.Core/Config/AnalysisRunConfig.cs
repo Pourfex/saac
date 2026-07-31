@@ -6,6 +6,7 @@ namespace SaacAnalysisCasper.Core.Config
 {
     using System;
     using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.IO;
     using System.Linq;
     using Newtonsoft.Json;
@@ -26,32 +27,32 @@ namespace SaacAnalysisCasper.Core.Config
         };
 
         /// <summary>
-        /// Gets or sets the single window length in milliseconds, when not sweeping.
+        /// Gets the single window length in milliseconds, when not sweeping.
         /// Exactly one of <see cref="WindowMs"/> or <see cref="WindowMsSweep"/> must be set.
         /// </summary>
         [JsonProperty("windowMs")]
-        public int? WindowMs { get; set; }
+        public int? WindowMs { get; private set; }
 
         /// <summary>
-        /// Gets or sets the multi-window sweep lengths in milliseconds.
+        /// Gets the multi-window sweep lengths in milliseconds.
         /// AD-8 text said <c>windowMsSweep</c> as a lone int, but Epic Stories 1.6/1.7 need multiple W
         /// values under the same key — this property is therefore an int array, not a lone int.
         /// Exactly one of <see cref="WindowMs"/> or <see cref="WindowMsSweep"/> must be set.
         /// </summary>
         [JsonProperty("windowMsSweep")]
-        public IReadOnlyList<int> WindowMsSweep { get; set; }
+        public IReadOnlyList<int> WindowMsSweep { get; private set; }
 
         /// <summary>
-        /// Gets or sets the output root directory path.
+        /// Gets the output root directory path.
         /// </summary>
         [JsonProperty("outputRoot")]
-        public string OutputRoot { get; set; }
+        public string OutputRoot { get; private set; }
 
         /// <summary>
-        /// Gets or sets the graph ids to run (e.g. <c>Poc</c>, <c>Logigramme1</c>).
+        /// Gets the graph ids to run (e.g. <c>Poc</c>, <c>Logigramme1</c>).
         /// </summary>
         [JsonProperty("graphs")]
-        public string[] Graphs { get; set; }
+        public IReadOnlyList<string> Graphs { get; private set; }
 
         /// <summary>
         /// Loads and validates an <see cref="AnalysisRunConfig"/> from a JSON file path.
@@ -65,8 +66,28 @@ namespace SaacAnalysisCasper.Core.Config
                 throw new ArgumentException("Run-config path must be non-empty.", nameof(path));
             }
 
-            string json = File.ReadAllText(path);
-            return Parse(json);
+            string json;
+            try
+            {
+                json = File.ReadAllText(path);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException("Failed to read run-config file '" + path + "'.", ex);
+            }
+
+            try
+            {
+                return Parse(json);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new InvalidOperationException("Invalid run-config file '" + path + "': " + ex.Message, ex);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException("Invalid run-config file '" + path + "': " + ex.Message, ex);
+            }
         }
 
         /// <summary>
@@ -81,12 +102,22 @@ namespace SaacAnalysisCasper.Core.Config
                 throw new ArgumentException("Run-config JSON must be non-empty.", nameof(json));
             }
 
-            AnalysisRunConfig config = JsonConvert.DeserializeObject<AnalysisRunConfig>(json);
+            AnalysisRunConfig config;
+            try
+            {
+                config = JsonConvert.DeserializeObject<AnalysisRunConfig>(json);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException("Run-config JSON is malformed or incompatible with the Core schema.", ex);
+            }
+
             if (config == null)
             {
                 throw new InvalidOperationException("Run-config JSON deserialized to null.");
             }
 
+            config.FreezeCollections();
             config.Validate();
             return config;
         }
@@ -101,17 +132,23 @@ namespace SaacAnalysisCasper.Core.Config
                 throw new InvalidOperationException("Run-config requires a non-empty 'outputRoot'.");
             }
 
-            if (this.Graphs == null || this.Graphs.Length == 0)
+            if (this.Graphs == null || this.Graphs.Count == 0)
             {
                 throw new InvalidOperationException("Run-config requires a non-empty 'graphs' array.");
             }
 
-            for (int i = 0; i < this.Graphs.Length; i++)
+            HashSet<string> seenGraphIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < this.Graphs.Count; i++)
             {
                 string graphId = this.Graphs[i];
                 if (string.IsNullOrWhiteSpace(graphId))
                 {
                     throw new InvalidOperationException("Run-config 'graphs' must not contain null or empty entries.");
+                }
+
+                if (!seenGraphIds.Add(graphId))
+                {
+                    throw new InvalidOperationException("Run-config 'graphs' contains duplicate id '" + graphId + "'.");
                 }
 
                 if (!AllowedGraphIds.Contains(graphId))
@@ -141,6 +178,19 @@ namespace SaacAnalysisCasper.Core.Config
                 {
                     HoppingWindowPolicy.ValidateWindowMs(this.WindowMsSweep[i], "windowMsSweep[" + i + "]");
                 }
+            }
+        }
+
+        private void FreezeCollections()
+        {
+            if (this.Graphs != null)
+            {
+                this.Graphs = new ReadOnlyCollection<string>(this.Graphs.ToArray());
+            }
+
+            if (this.WindowMsSweep != null)
+            {
+                this.WindowMsSweep = new ReadOnlyCollection<int>(this.WindowMsSweep.ToArray());
             }
         }
     }
