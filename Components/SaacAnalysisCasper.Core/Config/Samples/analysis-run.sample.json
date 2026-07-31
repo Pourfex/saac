@@ -1,5 +1,5 @@
 {
-  "windowMs": 1000,
+  "windowMsSweep": [ 100, 1000 ],
   "outputRoot": "C:\\Users\\alexi\\Documents\\Dev\\Ressources\\_analysis-out",
   "graphs": [ "Poc" ]
 }

@@ -12,10 +12,12 @@ namespace SaacAnalysisCasper.Replay.Services
     using SAAC;
     using SaacAnalysisCasper.Core.Config;
     using SaacAnalysisCasper.Core.Export;
+    using SaacAnalysisCasper.Core.Poc;
 
     /// <summary>
     /// Host-owned derived store + CSV sinks for a Replay run (AD-5 / AD-9).
     /// Opens paths/stores; Core helpers format names and write rows.
+    /// Per-W attribution: one CSV per branch (graph × participant × W) via <see cref="ExportPathFormatter.FormatCsvPath"/>.
     /// </summary>
     public sealed class DerivedExportSession : IDisposable
     {
@@ -29,6 +31,7 @@ namespace SaacAnalysisCasper.Replay.Services
         private readonly List<string> storeDirectories;
         private readonly List<StreamWriter?> streamWriters;
         private readonly Dictionary<string, int> rowsByCsvPath;
+        private readonly Dictionary<string, bool> requireRowsByCsvPath;
         private readonly object writerGate;
         private bool completedSuccessfully;
         private bool writersClosed;
@@ -45,6 +48,7 @@ namespace SaacAnalysisCasper.Replay.Services
             this.storeDirectories = new List<string>();
             this.streamWriters = new List<StreamWriter?>();
             this.rowsByCsvPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            this.requireRowsByCsvPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             this.writerGate = new object();
         }
 
@@ -64,12 +68,12 @@ namespace SaacAnalysisCasper.Replay.Services
         public IReadOnlyList<string> StoreDirectories => this.storeDirectories;
 
         /// <summary>
-        /// Creates output root, derived store(s), and per graph×participant CSV writers;
+        /// Creates output root, derived store(s), and per graph×participant×W CSV writers;
         /// wires store Write + CSV <c>Do</c> sinks before pipeline start.
         /// </summary>
         /// <param name="pipeline">Analysis pipeline that owns emitters.</param>
         /// <param name="branches">Bound Poc branches from <see cref="DualUserGraphBinder"/>.</param>
-        /// <param name="runConfig">Core run-config (outputRoot, W).</param>
+        /// <param name="runConfig">Core run-config (outputRoot, W list).</param>
         /// <param name="sessionName">Session name for store attribution.</param>
         /// <param name="datasetIdentity">Dataset path/name for attribution logs.</param>
         public void AttachExports(
@@ -106,15 +110,6 @@ namespace SaacAnalysisCasper.Replay.Services
             }
 
             Directory.CreateDirectory(runConfig.OutputRoot);
-
-            int windowMs = ResolvePrimaryWindowMs(runConfig);
-            if (runConfig.WindowMsSweep != null && runConfig.WindowMsSweep.Count > 1)
-            {
-                this.log(
-                    "windowMsSweep has " + runConfig.WindowMsSweep.Count
-                    + " values; Story 1.5 writes CSV for primary W=" + windowMs
-                    + " only (per-W science files land in Story 1.7).");
-            }
 
             Dictionary<string, PsiExporter> exportersByGraph =
                 new Dictionary<string, PsiExporter>(StringComparer.Ordinal);
@@ -155,34 +150,43 @@ namespace SaacAnalysisCasper.Replay.Services
                 }
 
                 PsiExporter graphExporter = exportersByGraph[branch.GraphId];
+                string streamRole = ExportStreamRoles.CoincidenceForWindow(branch.WindowMs);
                 string streamName = ExportPathFormatter.FormatStreamName(
                     branch.GraphId,
                     branch.Participant,
-                    ExportStreamRoles.Marker);
-                StoreExportHelper.Write(graphExporter, branch.MessageCountOut, streamName);
+                    streamRole);
+
+                // Store payload: WindowMs int (primitive; avoids custom DTO serializer registration).
+                IProducer<int> storePayload = branch.CoincidenceOut.Select(
+                    (PocCoincidenceC c) => c.WindowMs,
+                    DeliveryPolicy.Unlimited);
+                StoreExportHelper.Write(graphExporter, storePayload, streamName);
                 this.log(
                     "Store stream wired: " + streamName
                     + " participant=" + branch.Participant
+                    + " W=" + branch.WindowMs
                     + " graph=" + branch.GraphId);
 
                 string csvPath = ExportPathFormatter.FormatCsvPath(
                     runConfig.OutputRoot,
                     branch.GraphId,
                     branch.Participant,
-                    windowMs);
+                    branch.WindowMs);
 
                 StreamWriter streamWriter = new StreamWriter(csvPath, append: false, CsvExportFormat.Utf8WithoutBom);
                 CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
-                csvWriter.WriteHeader();
+                csvWriter.WriteCoincidenceHeader();
                 this.streamWriters.Add(streamWriter);
                 this.csvPaths.Add(csvPath);
                 this.rowsByCsvPath[csvPath] = 0;
+                this.requireRowsByCsvPath[csvPath] = branch.ExpectCoincidenceRows;
 
                 CsvExportWriter capturedWriter = csvWriter;
                 string capturedPath = csvPath;
+                int capturedWindowMs = branch.WindowMs;
                 object gate = this.writerGate;
-                branch.MessageCountOut.Do(
-                    (count, envelope) =>
+                branch.CoincidenceOut.Do(
+                    (PocCoincidenceC coincidence, Envelope envelope) =>
                     {
                         lock (gate)
                         {
@@ -191,7 +195,8 @@ namespace SaacAnalysisCasper.Replay.Services
                                 return;
                             }
 
-                            capturedWriter.WriteMarkerRow(envelope.OriginatingTime, count);
+                            int w = coincidence != null ? coincidence.WindowMs : capturedWindowMs;
+                            capturedWriter.WriteCoincidenceRow(envelope.OriginatingTime, w);
                             this.rowsByCsvPath[capturedPath] = this.rowsByCsvPath[capturedPath] + 1;
                         }
                     },
@@ -199,31 +204,67 @@ namespace SaacAnalysisCasper.Replay.Services
 
                 this.log(
                     "CSV export wired: participant=" + branch.Participant
-                    + " W=" + windowMs
+                    + " W=" + branch.WindowMs
                     + " session=" + sessionName
                     + " dataset=" + datasetIdentity
                     + " graph=" + branch.GraphId
+                    + " expectRows=" + branch.ExpectCoincidenceRows
                     + " path=" + csvPath);
             }
         }
 
         /// <summary>
-        /// Ensures each bound branch produced at least one CSV data row (AC#1).
+        /// Ensures CSV science gates for the inject schedule.
+        /// Matching-W branches (<see cref="BoundBranchDescriptor.ExpectCoincidenceRows"/> true) require ≥1 C row.
+        /// Non-matching branches must stay at 0 rows (fail-closed if a buggy POC still emits C when Δ &gt; W).
+        /// At least one matching-W branch must exist so an all-small-W config cannot vacuous-succeed.
         /// </summary>
         public void EnsureExportRowsPresent()
         {
             lock (this.writerGate)
             {
+                bool anyExpected = false;
+
                 for (int i = 0; i < this.csvPaths.Count; i++)
                 {
                     string path = this.csvPaths[i];
                     int rows;
-                    if (!this.rowsByCsvPath.TryGetValue(path, out rows) || rows < 1)
+                    if (!this.rowsByCsvPath.TryGetValue(path, out rows))
+                    {
+                        rows = 0;
+                    }
+
+                    bool requireRows;
+                    if (!this.requireRowsByCsvPath.TryGetValue(path, out requireRows))
+                    {
+                        requireRows = true;
+                    }
+
+                    if (requireRows)
+                    {
+                        anyExpected = true;
+                        if (rows < 1)
+                        {
+                            throw new InvalidOperationException(
+                                "Export produced no coincidence rows for CSV '" + path
+                                + "' where inject Δ is inside left-exclusive lookback (−W, 0]. "
+                                + "Successful matching-W runs require at least one Core-emitted C.");
+                        }
+                    }
+                    else if (rows > 0)
                     {
                         throw new InvalidOperationException(
-                            "Export produced no data rows for CSV '" + path
-                            + "'. Successful runs require at least one Core-emitted message per branch.");
+                            "Export produced coincidence rows for CSV '" + path
+                            + "' where inject Δ is outside lookback (−W, 0] (ExpectCoincidenceRows=false). "
+                            + "Negative-case W must stay header-only.");
                     }
+                }
+
+                if (!anyExpected)
+                {
+                    throw new InvalidOperationException(
+                        "No CSV path expects coincidence rows for the inject schedule "
+                        + "(all resolved W values are too small). Include at least one W that admits B_near.");
                 }
             }
         }
@@ -326,22 +367,6 @@ namespace SaacAnalysisCasper.Replay.Services
             {
                 this.CloseWriters();
             }
-        }
-
-        private static int ResolvePrimaryWindowMs(AnalysisRunConfig runConfig)
-        {
-            if (runConfig.WindowMs.HasValue)
-            {
-                return runConfig.WindowMs.Value;
-            }
-
-            if (runConfig.WindowMsSweep != null && runConfig.WindowMsSweep.Count > 0)
-            {
-                return runConfig.WindowMsSweep[0];
-            }
-
-            throw new InvalidOperationException(
-                "Run-config has neither windowMs nor windowMsSweep; cannot resolve CSV W values.");
         }
 
         private void TryLog(string message)

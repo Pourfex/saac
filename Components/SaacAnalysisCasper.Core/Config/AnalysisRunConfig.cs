@@ -174,11 +174,40 @@ namespace SaacAnalysisCasper.Core.Config
 
             if (hasWindowMsSweep)
             {
+                HashSet<int> seenWindowMs = new HashSet<int>();
                 for (int i = 0; i < this.WindowMsSweep.Count; i++)
                 {
-                    HoppingWindowPolicy.ValidateWindowMs(this.WindowMsSweep[i], "windowMsSweep[" + i + "]");
+                    int sweepWindowMs = this.WindowMsSweep[i];
+                    HoppingWindowPolicy.ValidateWindowMs(sweepWindowMs, "windowMsSweep[" + i + "]");
+                    if (!seenWindowMs.Add(sweepWindowMs))
+                    {
+                        throw new InvalidOperationException(
+                            "Run-config 'windowMsSweep' contains duplicate W=" + sweepWindowMs
+                            + "; duplicates collide on CSV/store attribution paths.");
+                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// Enumerates the resolved W list: <see cref="WindowMs"/> alone, or every <see cref="WindowMsSweep"/> entry.
+        /// Hosts should use this instead of reimplementing the XOR (AD-8).
+        /// </summary>
+        /// <returns>One or more validated window lengths in milliseconds.</returns>
+        public IReadOnlyList<int> EnumerateWindowMs()
+        {
+            if (this.WindowMs.HasValue)
+            {
+                return new ReadOnlyCollection<int>(new int[] { this.WindowMs.Value });
+            }
+
+            if (this.WindowMsSweep != null && this.WindowMsSweep.Count > 0)
+            {
+                return this.WindowMsSweep;
+            }
+
+            throw new InvalidOperationException(
+                "Run-config has neither windowMs nor windowMsSweep; cannot enumerate W values.");
         }
 
         private void FreezeCollections()

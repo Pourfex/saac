@@ -14,14 +14,19 @@ namespace SaacAnalysisCasper.Core.Graphs
     public static class CompositionFactory
     {
         /// <summary>
-        /// Creates a new composition instance for the given graph and participant.
-        /// Call once per participant (AD-3: two independent instances).
+        /// Creates a new composition instance for the given graph and participant, closed over <paramref name="windowMs"/>.
+        /// Call once per participant × W (AD-3: independent instances; never merge M1/M2).
         /// </summary>
         /// <param name="graphId">Graph id from run-config (e.g. <c>Poc</c>).</param>
         /// <param name="participant">Participant branch (M1 or M2).</param>
         /// <param name="pipeline">Analysis pipeline that owns receivers/emitters.</param>
+        /// <param name="windowMs">Window length W from AD-8 for this POC instance.</param>
         /// <returns>A fresh bindable composition instance.</returns>
-        public static IBindableComposition Create(string graphId, ParticipantId participant, Pipeline pipeline)
+        public static IBindableComposition Create(
+            string graphId,
+            ParticipantId participant,
+            Pipeline pipeline,
+            int windowMs)
         {
             if (string.IsNullOrWhiteSpace(graphId))
             {
@@ -35,11 +40,11 @@ namespace SaacAnalysisCasper.Core.Graphs
 
             if (string.Equals(graphId, "Poc", StringComparison.Ordinal))
             {
-                return new PocBindableComposition(pipeline, participant);
+                return new PocBindableComposition(pipeline, participant, windowMs);
             }
 
             throw new InvalidOperationException(
-                "Unknown or unsupported graph id '" + graphId + "' for dual-user binding. Supported in Story 1.4: Poc.");
+                "Unknown or unsupported graph id '" + graphId + "' for dual-user binding. Supported in Story 1.7: Poc.");
         }
     }
 }

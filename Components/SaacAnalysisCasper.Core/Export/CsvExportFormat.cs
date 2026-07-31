@@ -34,6 +34,11 @@ namespace SaacAnalysisCasper.Core.Export
         /// </summary>
         public const string MessageCountHeader = "MessageCount";
 
+        /// <summary>
+        /// Coincidence C payload column header (Story 1.7). Appended after <see cref="TimeHeader"/>; micro-format unchanged.
+        /// </summary>
+        public const string WindowMsHeader = "WindowMs";
+
         private static readonly Encoding Utf8NoBomEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         /// <summary>

@@ -7,9 +7,10 @@ namespace SaacAnalysisCasper.Replay.Services
     using System;
     using Microsoft.Psi;
     using SaacAnalysisCasper.Core.Mapping;
+    using SaacAnalysisCasper.Core.Poc;
 
     /// <summary>
-    /// One dual-user branch after bind, with its exportable Core emitter.
+    /// One dual-user × W branch after bind, with its exportable Core C emitter.
     /// </summary>
     public sealed class BoundBranchDescriptor
     {
@@ -18,8 +19,17 @@ namespace SaacAnalysisCasper.Replay.Services
         /// </summary>
         /// <param name="graphId">Graph id (e.g. <c>Poc</c>).</param>
         /// <param name="participant">Participant branch.</param>
-        /// <param name="messageCountOut">Exportable marker/count emitter.</param>
-        public BoundBranchDescriptor(string graphId, ParticipantId participant, Emitter<int> messageCountOut)
+        /// <param name="windowMs">Window length W closed over by this branch's POC.</param>
+        /// <param name="coincidenceOut">Exportable coincidence C producer.</param>
+        /// <param name="expectCoincidenceRows">
+        /// When true, successful runs require ≥1 CSV data row; when false, zero C rows is valid science (Δ &gt; W).
+        /// </param>
+        public BoundBranchDescriptor(
+            string graphId,
+            ParticipantId participant,
+            int windowMs,
+            IProducer<PocCoincidenceC> coincidenceOut,
+            bool expectCoincidenceRows)
         {
             if (string.IsNullOrWhiteSpace(graphId))
             {
@@ -28,7 +38,9 @@ namespace SaacAnalysisCasper.Replay.Services
 
             this.GraphId = graphId;
             this.Participant = participant;
-            this.MessageCountOut = messageCountOut ?? throw new ArgumentNullException(nameof(messageCountOut));
+            this.WindowMs = windowMs;
+            this.CoincidenceOut = coincidenceOut ?? throw new ArgumentNullException(nameof(coincidenceOut));
+            this.ExpectCoincidenceRows = expectCoincidenceRows;
         }
 
         /// <summary>
@@ -42,8 +54,18 @@ namespace SaacAnalysisCasper.Replay.Services
         public ParticipantId Participant { get; }
 
         /// <summary>
-        /// Gets the Core marker/count emitter for store + CSV export.
+        /// Gets the window length W for this branch.
         /// </summary>
-        public Emitter<int> MessageCountOut { get; }
+        public int WindowMs { get; }
+
+        /// <summary>
+        /// Gets the Core coincidence C producer for store + CSV export.
+        /// </summary>
+        public IProducer<PocCoincidenceC> CoincidenceOut { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether this branch's CSV must contain ≥1 data row on success.
+        /// </summary>
+        public bool ExpectCoincidenceRows { get; }
     }
 }

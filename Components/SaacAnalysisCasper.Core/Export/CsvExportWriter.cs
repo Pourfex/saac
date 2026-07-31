@@ -61,5 +61,41 @@ namespace SaacAnalysisCasper.Core.Export
                 + CsvExportFormat.Delimiter
                 + messageCount.ToString(CultureInfo.InvariantCulture));
         }
+
+        /// <summary>
+        /// Writes the coincidence C header once: <c>OriginatingTime,WindowMs</c>.
+        /// Delimiter and time format remain frozen (AD-5).
+        /// </summary>
+        public void WriteCoincidenceHeader()
+        {
+            if (this.headerWritten)
+            {
+                throw new InvalidOperationException("CSV header was already written.");
+            }
+
+            this.writer.WriteLine(
+                CsvExportFormat.TimeHeader
+                + CsvExportFormat.Delimiter
+                + CsvExportFormat.WindowMsHeader);
+            this.headerWritten = true;
+        }
+
+        /// <summary>
+        /// Appends one coincidence C row using <see cref="CsvExportFormat"/> time formatting.
+        /// </summary>
+        /// <param name="originatingTime">Envelope originating time from C (B's time; never wall-clock now).</param>
+        /// <param name="windowMs">Window length W that produced this row.</param>
+        public void WriteCoincidenceRow(DateTime originatingTime, int windowMs)
+        {
+            if (!this.headerWritten)
+            {
+                throw new InvalidOperationException("WriteCoincidenceHeader must be called before WriteCoincidenceRow.");
+            }
+
+            this.writer.WriteLine(
+                CsvExportFormat.FormatOriginatingTime(originatingTime)
+                + CsvExportFormat.Delimiter
+                + windowMs.ToString(CultureInfo.InvariantCulture));
+        }
     }
 }

@@ -196,7 +196,7 @@ namespace SaacAnalysisCasper.Replay.Services
                 this.log("Dataset connectors loaded for session '" + sessionName + "'.");
 
                 DualUserGraphBinder binder = new DualUserGraphBinder(this.log);
-                IReadOnlyList<BoundBranchDescriptor> branches = binder.Bind(replay, runConfig);
+                IReadOnlyList<BoundBranchDescriptor> branches = binder.Bind(replay, runConfig, sessionName);
                 this.log("Dual-user graph binding complete (" + branches.Count + " exportable branch(es)).");
 
                 exportSession = new DerivedExportSession(this.log);
@@ -294,17 +294,9 @@ namespace SaacAnalysisCasper.Replay.Services
             this.log("=== Run identity ===");
             this.log("Dataset: " + Path.Combine(datasetPath, datasetName));
             this.log("Session: " + sessionName);
-            if (runConfig.WindowMs.HasValue)
-            {
-                this.log("windowMs: " + runConfig.WindowMs.Value);
-            }
-            else
-            {
-                string sweep = runConfig.WindowMsSweep != null
-                    ? string.Join(", ", runConfig.WindowMsSweep)
-                    : string.Empty;
-                this.log("windowMsSweep pending: [" + sweep + "]");
-            }
+
+            IReadOnlyList<int> windows = runConfig.EnumerateWindowMs();
+            this.log("windowMs list: [" + string.Join(", ", windows) + "]");
 
             string graphs = runConfig.Graphs != null ? string.Join(", ", runConfig.Graphs) : string.Empty;
             this.log("graphs: [" + graphs + "]");
