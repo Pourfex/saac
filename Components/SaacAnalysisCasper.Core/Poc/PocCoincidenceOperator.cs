@@ -86,7 +86,14 @@ namespace SaacAnalysisCasper.Core.Poc
                     hasA = true;
                 }
 
-                if (!trigger.HasValue || message.OriginatingTime >= trigger.Value.OriginatingTime)
+                // Max OriginatingTime wins; on same-OT tie prefer B so A∧B at identical OT still emits C.
+                if (!trigger.HasValue || message.OriginatingTime > trigger.Value.OriginatingTime)
+                {
+                    trigger = message;
+                }
+                else if (message.OriginatingTime == trigger.Value.OriginatingTime
+                    && message.Data.Kind == PocEventKind.B
+                    && (trigger.Value.Data == null || trigger.Value.Data.Kind != PocEventKind.B))
                 {
                     trigger = message;
                 }

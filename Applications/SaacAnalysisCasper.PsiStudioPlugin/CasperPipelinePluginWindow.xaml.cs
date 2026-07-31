@@ -7,8 +7,10 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
     using System;
     using System.ComponentModel;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
     using System.Windows;
+    using System.Windows.Threading;
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using Microsoft.Psi.PsiStudio.PipelinePlugin;
@@ -22,8 +24,11 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
     /// </summary>
     public partial class CasperPipelinePluginWindow : Window, IPsiStudioPipeline
     {
+        private const int StopJoinTimeoutMs = 30000;
+
         private readonly PluginPocRunner runner;
         private readonly object startGate;
+        private bool uiInitialized;
         private bool isRunning;
 
         /// <summary>
@@ -37,11 +42,15 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
             try
             {
                 this.InitializeComponent();
+                this.uiInitialized = true;
                 this.RunConfigPathTextBox.Text = PluginRunConfigLoader.DefaultRunConfigPath;
-                this.AppendLog("Ready. Confirm run-config (AD-8), then click Run POC. PsiStudio RunPipeline uses the same path.");
+                this.AppendLog(
+                    "Ready. Confirm run-config (AD-8), then click Run POC. "
+                    + "PsiStudio RunPipeline auto-starts the same inject-only path with the path shown here.");
             }
             catch
             {
+                this.uiInitialized = false;
                 this.Title = "SaacAnalysisCasper PsiStudio Plugin";
                 this.Width = 640;
                 this.Height = 420;
@@ -66,19 +75,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         /// <inheritdoc/>
         public void StopPipeline()
         {
-            try
-            {
-                this.runner.Stop();
-            }
-            catch (Exception ex)
-            {
-                this.AppendLog("Stop warning: " + ex.Message);
-            }
-
-            lock (this.startGate)
-            {
-                this.isRunning = false;
-            }
+            this.RequestStopAndJoin();
 
             this.SetStatusText("Stopped");
             this.SetUiEnabled(true);
@@ -104,14 +101,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
                 return;
             }
 
-            try
-            {
-                this.runner.Stop();
-            }
-            catch
-            {
-                // Best-effort cleanup for PsiStudio loader.
-            }
+            this.RequestStopAndJoin();
 
             if (this.IsVisible)
             {
@@ -122,21 +112,13 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         /// <inheritdoc/>
         protected override void OnClosing(CancelEventArgs e)
         {
-            try
-            {
-                this.runner.Stop();
-            }
-            catch
-            {
-                // Best-effort cleanup on close.
-            }
-
+            this.RequestStopAndJoin();
             base.OnClosing(e);
         }
 
         private void BrowseRunConfig_Click(object sender, RoutedEventArgs e)
         {
-            if (this.RunConfigPathTextBox == null)
+            if (!this.uiInitialized || this.RunConfigPathTextBox == null)
             {
                 this.Fail("UI unavailable (XAML failed to load); cannot browse run-config.");
                 return;
@@ -182,6 +164,12 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
 
         private async void StartPocRun()
         {
+            if (!this.uiInitialized)
+            {
+                this.Fail("UI unavailable (XAML failed to load); refusing Plugin POC run.");
+                return;
+            }
+
             lock (this.startGate)
             {
                 if (this.isRunning || this.runner.IsRunning)
@@ -197,20 +185,16 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
                 ? this.RunConfigPathTextBox.Text
                 : PluginRunConfigLoader.DefaultRunConfigPath;
 
-            if (string.IsNullOrWhiteSpace(runConfigPath) || !File.Exists(runConfigPath))
-            {
-                lock (this.startGate)
-                {
-                    this.isRunning = false;
-                }
-
-                this.Fail("Run-config JSON missing or not found: " + runConfigPath);
-                return;
-            }
-
             AnalysisRunConfig runConfig;
             try
             {
+                if (string.IsNullOrWhiteSpace(runConfigPath) || !File.Exists(runConfigPath))
+                {
+                    throw new FileNotFoundException(
+                        "Run-config JSON missing or not found: " + runConfigPath,
+                        runConfigPath);
+                }
+
                 runConfig = PluginRunConfigLoader.Load(runConfigPath);
             }
             catch (Exception ex)
@@ -253,6 +237,49 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
             }
         }
 
+        private void RequestStopAndJoin()
+        {
+            try
+            {
+                this.runner.Stop();
+            }
+            catch (Exception ex)
+            {
+                this.AppendLog("Stop warning: " + ex.Message);
+            }
+
+            this.WaitForRunnerIdle();
+        }
+
+        private void WaitForRunnerIdle()
+        {
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(StopJoinTimeoutMs);
+            while (this.runner.IsRunning && DateTime.UtcNow < deadline)
+            {
+                // Pump the dispatcher so StartPocRun's ConfigureAwait(true) continuation can finish
+                // while StopPipeline/Dispose runs on the UI thread.
+                if (this.Dispatcher.CheckAccess())
+                {
+                    DispatcherFrame frame = new DispatcherFrame();
+                    this.Dispatcher.BeginInvoke(
+                        DispatcherPriority.Background,
+                        new Action(() => { frame.Continue = false; }));
+                    Dispatcher.PushFrame(frame);
+                }
+                else
+                {
+                    Thread.Sleep(25);
+                }
+            }
+
+            if (this.runner.IsRunning)
+            {
+                this.AppendLog(
+                    "Stop warning: Plugin POC runner still busy after "
+                    + StopJoinTimeoutMs + "ms; continuing host teardown.");
+            }
+        }
+
         private void SetUiEnabled(bool enabled)
         {
             if (this.BrowseRunConfigButton != null)
@@ -275,7 +302,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         {
             this.SetStatusText("Failed");
             this.AppendLog("ERROR: " + message);
-            if (!this.Dispatcher.HasShutdownStarted)
+            if (!this.Dispatcher.HasShutdownStarted && this.uiInitialized)
             {
                 MessageBox.Show(
                     this,

@@ -30,6 +30,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         private Pipeline? pipeline;
         private PluginExportSession? exportSession;
         private bool isRunning;
+        private bool abortRequested;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PluginPocRunner"/> class.
@@ -74,6 +75,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                 }
 
                 this.isRunning = true;
+                this.abortRequested = false;
             }
 
             this.exportSession = null;
@@ -81,6 +83,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
 
             try
             {
+                this.ThrowIfAbortRequested();
                 this.LogRunIdentity(runConfig);
 
                 Pipeline localPipeline = Pipeline.Create("SaacAnalysisCasper.PluginPoc");
@@ -102,6 +105,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                     PluginSessionName,
                     PluginDatasetIdentity);
 
+                this.ThrowIfAbortRequested();
                 this.log("Starting FullSpeed Plugin POC pipeline (ReplayDescriptor.ReplayAll).");
                 localPipeline.Run(ReplayDescriptor.ReplayAll);
 
@@ -110,7 +114,17 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
 
                 this.StopAndDisposePipeline();
 
-                localExport.MarkCompleted();
+                lock (this.runGate)
+                {
+                    if (this.abortRequested)
+                    {
+                        throw new OperationCanceledException(
+                            "Plugin POC stop requested before export success was committed.");
+                    }
+
+                    localExport.MarkCompleted();
+                }
+
                 localExport.LogSuccessPaths();
                 this.log("Plugin POC completed.");
             }
@@ -163,17 +177,39 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         /// </summary>
         public void Stop()
         {
+            lock (this.runGate)
+            {
+                this.abortRequested = true;
+            }
+
             this.StopAndDisposePipeline();
 
-            if (this.exportSession != null && !this.exportSession.CompletedSuccessfully)
+            PluginExportSession? session;
+            lock (this.runGate)
+            {
+                session = this.exportSession;
+            }
+
+            if (session != null && !session.CompletedSuccessfully)
             {
                 try
                 {
-                    this.exportSession.CleanupIncomplete();
+                    session.CleanupIncomplete();
                 }
                 catch (Exception ex)
                 {
                     this.TryLog("Stop export cleanup warning: " + ex.Message);
+                }
+            }
+        }
+
+        private void ThrowIfAbortRequested()
+        {
+            lock (this.runGate)
+            {
+                if (this.abortRequested)
+                {
+                    throw new OperationCanceledException("Plugin POC stop requested.");
                 }
             }
         }

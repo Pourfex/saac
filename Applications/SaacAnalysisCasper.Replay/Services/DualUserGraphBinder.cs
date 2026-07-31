@@ -210,27 +210,65 @@ namespace SaacAnalysisCasper.Replay.Services
                     "Session '" + sessionName + "' has no bounded MessageOriginatingTimeInterval for inject placement.");
             }
 
-            // Nest inject inside the session interval so FullSpeed ReplayDescriptor delivers it.
-            DateTime baseTime = interval.Left.AddMilliseconds(500);
-            DateTime lastInject = baseTime.AddMilliseconds(PocInjectSources.FarGapMs);
-            if (interval.RightEndpoint.Bounded && lastInject > interval.Right)
+            if (interval.IsFinite && interval.Left.CompareTo(interval.Right) > 0)
             {
-                // Fall back toward the left edge if the session is unexpectedly short.
-                baseTime = interval.Left;
+                throw new InvalidOperationException(
+                    "Session '" + sessionName + "' MessageOriginatingTimeInterval is inverted (Left > Right).");
+            }
+
+            // Nest inject inside the session interval so FullSpeed ReplayDescriptor delivers it.
+            // Prefer Left+500ms; fall back toward the inclusive interior if the session is short.
+            DateTime baseTime = interval.Left.AddMilliseconds(500);
+            DateTime nearInject = baseTime.AddMilliseconds(PocInjectSources.NearGapMs);
+            DateTime lastInject = baseTime.AddMilliseconds(PocInjectSources.FarGapMs);
+            if (!ScheduleFitsSessionInterval(interval, baseTime, nearInject, lastInject))
+            {
+                if (interval.LeftEndpoint.Inclusive)
+                {
+                    baseTime = interval.Left;
+                }
+                else
+                {
+                    // Exclusive Left: first deliverable tick after the edge.
+                    baseTime = interval.Left.AddTicks(1);
+                }
+
+                nearInject = baseTime.AddMilliseconds(PocInjectSources.NearGapMs);
                 lastInject = baseTime.AddMilliseconds(PocInjectSources.FarGapMs);
             }
 
-            if (baseTime < interval.Left
-                || (interval.RightEndpoint.Bounded && lastInject > interval.Right))
+            if (!ScheduleFitsSessionInterval(interval, baseTime, nearInject, lastInject))
             {
                 throw new InvalidOperationException(
                     "Session '" + sessionName + "' MessageOriginatingTimeInterval is too short to host the POC inject schedule "
-                    + "(needs ≥ " + PocInjectSources.FarGapMs + " ms after inject base). "
+                    + "(needs ≥ " + PocInjectSources.FarGapMs + " ms after inject base, respecting endpoint inclusivity). "
                     + "interval=[" + interval.Left.ToString("o") + ", "
-                    + (interval.RightEndpoint.Bounded ? interval.Right.ToString("o") : "∞") + "].");
+                    + (interval.RightEndpoint.Bounded ? interval.Right.ToString("o") : "∞") + "]"
+                    + " LeftInclusive=" + interval.LeftEndpoint.Inclusive
+                    + " RightInclusive=" + interval.RightEndpoint.Inclusive + ".");
             }
 
             return baseTime;
+        }
+
+        private static bool ScheduleFitsSessionInterval(
+            TimeInterval interval,
+            DateTime baseTime,
+            DateTime nearInject,
+            DateTime lastInject)
+        {
+            if (!interval.PointIsWithin(baseTime) || !interval.PointIsWithin(nearInject))
+            {
+                return false;
+            }
+
+            // Unbounded Right: B_far always fits once A and B_near are inside.
+            if (!interval.RightEndpoint.Bounded)
+            {
+                return true;
+            }
+
+            return interval.PointIsWithin(lastInject);
         }
 
         private static Dictionary<string, ConnectorInfo> BuildTopicIndex(

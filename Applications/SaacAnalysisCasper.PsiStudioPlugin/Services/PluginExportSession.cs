@@ -11,6 +11,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
     using Microsoft.Psi.Data;
     using SaacAnalysisCasper.Core.Config;
     using SaacAnalysisCasper.Core.Export;
+    using SaacAnalysisCasper.Core.Mapping;
     using SaacAnalysisCasper.Core.Poc;
 
     /// <summary>
@@ -30,6 +31,8 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         private readonly object writerGate;
         private bool completedSuccessfully;
         private bool writersClosed;
+        private bool writersFlushedOk;
+        private bool abandoned;
         private bool disposed;
 
         /// <summary>
@@ -98,11 +101,18 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                 throw new ArgumentException("sessionName must be non-empty.", nameof(sessionName));
             }
 
+            if (string.IsNullOrWhiteSpace(runConfig.OutputRoot))
+            {
+                throw new ArgumentException("runConfig.OutputRoot must be non-empty.", nameof(runConfig));
+            }
+
             if (branches.Count == 0)
             {
                 throw new InvalidOperationException(
                     "No bound branches available for derived store/CSV export.");
             }
+
+            RequireBothParticipants(branches);
 
             Directory.CreateDirectory(runConfig.OutputRoot);
 
@@ -129,7 +139,17 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
 
                     Directory.CreateDirectory(storeDirectory);
 
-                    PsiExporter exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
+                    PsiExporter exporter;
+                    try
+                    {
+                        exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
+                    }
+                    catch
+                    {
+                        TryDeleteDirectory(storeDirectory);
+                        throw;
+                    }
+
                     exportersByGraph.Add(branch.GraphId, exporter);
                     this.storeDirectories.Add(storeDirectory);
 
@@ -264,22 +284,40 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         /// </summary>
         public void MarkCompleted()
         {
-            this.completedSuccessfully = true;
+            lock (this.writerGate)
+            {
+                if (this.abandoned)
+                {
+                    throw new InvalidOperationException(
+                        "MarkCompleted refused: export session was abandoned by Stop/cleanup.");
+                }
+
+                if (!this.writersFlushedOk)
+                {
+                    throw new InvalidOperationException(
+                        "MarkCompleted requires CloseWriters to finish flush/dispose successfully "
+                        + "so success is not declared after a failed close.");
+                }
+
+                this.completedSuccessfully = true;
+            }
         }
 
         /// <summary>
         /// Flushes and closes CSV writers after pipeline completion.
+        /// Sets flushed-ok only when every writer closes cleanly.
         /// </summary>
         public void CloseWriters()
         {
             lock (this.writerGate)
             {
-                if (this.writersClosed)
+                if (this.writersFlushedOk)
                 {
                     return;
                 }
 
                 this.writersClosed = true;
+                Exception? firstFailure = null;
                 for (int i = 0; i < this.streamWriters.Count; i++)
                 {
                     StreamWriter? writer = this.streamWriters[i];
@@ -292,14 +330,27 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                     {
                         writer.Flush();
                         writer.Dispose();
+                        this.streamWriters[i] = null;
                     }
                     catch (Exception ex)
                     {
-                        this.TryLog("CSV writer close warning: " + ex.Message);
-                    }
+                        if (firstFailure == null)
+                        {
+                            firstFailure = ex;
+                        }
 
-                    this.streamWriters[i] = null;
+                        this.TryLog("CSV writer close failure: " + ex.Message);
+                    }
                 }
+
+                if (firstFailure != null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to flush/close one or more CSV writers; refusing to mark export success.",
+                        firstFailure);
+                }
+
+                this.writersFlushedOk = true;
             }
         }
 
@@ -308,12 +359,25 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         /// </summary>
         public void CleanupIncomplete()
         {
-            if (this.completedSuccessfully)
+            lock (this.writerGate)
             {
-                return;
+                if (this.completedSuccessfully)
+                {
+                    return;
+                }
+
+                this.abandoned = true;
             }
 
-            this.CloseWriters();
+            try
+            {
+                this.CloseWriters();
+            }
+            catch (Exception ex)
+            {
+                this.TryLog("CSV close during incomplete cleanup: " + ex.Message);
+            }
+
             IncompleteExportCleanup.MarkIncompleteOrDelete(this.csvPaths, this.TryLog);
             for (int i = 0; i < this.storeDirectories.Count; i++)
             {
@@ -353,7 +417,79 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
             }
             else
             {
-                this.CloseWriters();
+                try
+                {
+                    this.CloseWriters();
+                }
+                catch (Exception ex)
+                {
+                    this.TryLog("CSV close during dispose: " + ex.Message);
+                }
+            }
+        }
+
+        private static void RequireBothParticipants(IReadOnlyList<BoundBranchDescriptor> branches)
+        {
+            Dictionary<int, bool> hasM1ByW = new Dictionary<int, bool>();
+            Dictionary<int, bool> hasM2ByW = new Dictionary<int, bool>();
+
+            for (int i = 0; i < branches.Count; i++)
+            {
+                BoundBranchDescriptor branch = branches[i];
+                if (branch == null)
+                {
+                    continue;
+                }
+
+                int windowMs = branch.WindowMs;
+                if (!hasM1ByW.ContainsKey(windowMs))
+                {
+                    hasM1ByW[windowMs] = false;
+                    hasM2ByW[windowMs] = false;
+                }
+
+                if (branch.Participant == ParticipantId.M1)
+                {
+                    hasM1ByW[windowMs] = true;
+                }
+                else if (branch.Participant == ParticipantId.M2)
+                {
+                    hasM2ByW[windowMs] = true;
+                }
+            }
+
+            if (hasM1ByW.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "Plugin export requires both M1 and M2 bound branches; refusing one-sided success.");
+            }
+
+            foreach (KeyValuePair<int, bool> entry in hasM1ByW)
+            {
+                bool hasM2;
+                if (!entry.Value
+                    || !hasM2ByW.TryGetValue(entry.Key, out hasM2)
+                    || !hasM2)
+                {
+                    throw new InvalidOperationException(
+                        "Plugin export requires both M1 and M2 bound branches for every W; "
+                        + "missing participant pair for W=" + entry.Key + ".");
+                }
+            }
+        }
+
+        private static void TryDeleteDirectory(string directory)
+        {
+            try
+            {
+                if (Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort orphan cleanup; caller still rethrows the original create failure.
             }
         }
 

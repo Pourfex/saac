@@ -36,6 +36,7 @@ namespace SaacAnalysisCasper.Replay.Services
         private readonly object writerGate;
         private bool completedSuccessfully;
         private bool writersClosed;
+        private bool writersFlushedOk;
         private bool disposed;
 
         /// <summary>
@@ -218,7 +219,6 @@ namespace SaacAnalysisCasper.Replay.Services
 
                 CsvExportWriter capturedWriter = csvWriter;
                 string capturedPath = csvPath;
-                int capturedWindowMs = branch.WindowMs;
                 object gate = this.writerGate;
                 branch.CoincidenceOut.Do(
                     (PocCoincidenceC coincidence, Envelope envelope) =>
@@ -230,8 +230,14 @@ namespace SaacAnalysisCasper.Replay.Services
                                 return;
                             }
 
-                            int w = coincidence != null ? coincidence.WindowMs : capturedWindowMs;
-                            capturedWriter.WriteCoincidenceRow(envelope.OriginatingTime, w);
+                            if (coincidence == null)
+                            {
+                                throw new InvalidOperationException(
+                                    "Null PocCoincidenceC on CSV sink for '" + capturedPath
+                                    + "'; refusing to forge a coincidence row.");
+                            }
+
+                            capturedWriter.WriteCoincidenceRow(envelope.OriginatingTime, coincidence.WindowMs);
                             this.rowsByCsvPath[capturedPath] = this.rowsByCsvPath[capturedPath] + 1;
                         }
                     },
@@ -310,10 +316,11 @@ namespace SaacAnalysisCasper.Replay.Services
         /// </summary>
         public void MarkCompleted()
         {
-            if (!this.writersClosed)
+            if (!this.writersFlushedOk)
             {
                 throw new InvalidOperationException(
-                    "MarkCompleted requires CloseWriters first so success is not declared with open CSV handles.");
+                    "MarkCompleted requires CloseWriters to finish flush/dispose successfully "
+                    + "so success is not declared after a failed close.");
             }
 
             this.completedSuccessfully = true;
@@ -321,16 +328,18 @@ namespace SaacAnalysisCasper.Replay.Services
 
         /// <summary>
         /// Flushes and closes CSV writers after pipeline WaitAll (store disposed with pipeline).
+        /// Stops new CSV rows immediately; sets <see cref="writersFlushedOk"/> only when every writer closes cleanly.
         /// </summary>
         public void CloseWriters()
         {
             lock (this.writerGate)
             {
-                if (this.writersClosed)
+                if (this.writersFlushedOk)
                 {
                     return;
                 }
 
+                // Stop Do sinks from writing while we flush; do not treat this as success yet.
                 this.writersClosed = true;
                 Exception? firstFailure = null;
                 for (int i = 0; i < this.streamWriters.Count; i++)
@@ -345,6 +354,7 @@ namespace SaacAnalysisCasper.Replay.Services
                     {
                         writer.Flush();
                         writer.Dispose();
+                        this.streamWriters[i] = null;
                     }
                     catch (Exception ex)
                     {
@@ -355,8 +365,6 @@ namespace SaacAnalysisCasper.Replay.Services
 
                         this.TryLog("CSV writer close failure: " + ex.Message);
                     }
-
-                    this.streamWriters[i] = null;
                 }
 
                 if (firstFailure != null)
@@ -365,6 +373,8 @@ namespace SaacAnalysisCasper.Replay.Services
                         "Failed to flush/close one or more CSV writers; refusing to mark export success.",
                         firstFailure);
                 }
+
+                this.writersFlushedOk = true;
             }
         }
 
@@ -440,8 +450,9 @@ namespace SaacAnalysisCasper.Replay.Services
 
         private static void RequireBothParticipants(IReadOnlyList<BoundBranchDescriptor> branches)
         {
-            bool hasM1 = false;
-            bool hasM2 = false;
+            Dictionary<int, bool> hasM1ByW = new Dictionary<int, bool>();
+            Dictionary<int, bool> hasM2ByW = new Dictionary<int, bool>();
+
             for (int i = 0; i < branches.Count; i++)
             {
                 BoundBranchDescriptor branch = branches[i];
@@ -450,20 +461,40 @@ namespace SaacAnalysisCasper.Replay.Services
                     continue;
                 }
 
+                int windowMs = branch.WindowMs;
+                if (!hasM1ByW.ContainsKey(windowMs))
+                {
+                    hasM1ByW[windowMs] = false;
+                    hasM2ByW[windowMs] = false;
+                }
+
                 if (branch.Participant == ParticipantId.M1)
                 {
-                    hasM1 = true;
+                    hasM1ByW[windowMs] = true;
                 }
                 else if (branch.Participant == ParticipantId.M2)
                 {
-                    hasM2 = true;
+                    hasM2ByW[windowMs] = true;
                 }
             }
 
-            if (!hasM1 || !hasM2)
+            if (hasM1ByW.Count == 0)
             {
                 throw new InvalidOperationException(
                     "Derived export requires both M1 and M2 bound branches; refusing one-sided success.");
+            }
+
+            foreach (KeyValuePair<int, bool> entry in hasM1ByW)
+            {
+                bool hasM2;
+                if (!entry.Value
+                    || !hasM2ByW.TryGetValue(entry.Key, out hasM2)
+                    || !hasM2)
+                {
+                    throw new InvalidOperationException(
+                        "Derived export requires both M1 and M2 bound branches for every W; "
+                        + "missing participant pair for W=" + entry.Key + ".");
+                }
             }
         }
 
