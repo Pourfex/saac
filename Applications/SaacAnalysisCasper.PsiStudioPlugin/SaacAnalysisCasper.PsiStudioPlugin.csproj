@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Psi.Visualization.Windows" Version="0.19.100.1-beta" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>

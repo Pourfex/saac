@@ -6,36 +6,45 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
 {
     using System;
     using System.ComponentModel;
+    using System.IO;
+    using System.Threading.Tasks;
     using System.Windows;
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using Microsoft.Psi.PsiStudio.PipelinePlugin;
-    using SaacAnalysisCasper.Core;
+    using Microsoft.Win32;
     using SaacAnalysisCasper.Core.Config;
+    using SaacAnalysisCasper.PsiStudioPlugin.Services;
 
     /// <summary>
-    /// Thin PsiStudio pipeline plugin stub. Must derive from <see cref="Window"/> for discovery.
-    /// Full host-swap proof is Story 1.8.
+    /// Thin PsiStudio pipeline plugin host. Must derive from <see cref="Window"/> for discovery.
+    /// Runs the same Core Poc graph as Replay (Story 1.8 host-swap proof).
     /// </summary>
     public partial class CasperPipelinePluginWindow : Window, IPsiStudioPipeline
     {
+        private readonly PluginPocRunner runner;
+        private readonly object startGate;
+        private bool isRunning;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="CasperPipelinePluginWindow"/> class.
         /// </summary>
         public CasperPipelinePluginWindow()
         {
-            // Story 1.2: hosts deserialize Core schema only (UI binding is Story 1.8).
-            _ = AnalysisRunConfig.Parse("{\"windowMs\":1000,\"outputRoot\":\"stub\",\"graphs\":[\"Poc\"]}");
+            this.runner = new PluginPocRunner(this.AppendLogFromBackground);
+            this.startGate = new object();
 
             try
             {
                 this.InitializeComponent();
+                this.RunConfigPathTextBox.Text = PluginRunConfigLoader.DefaultRunConfigPath;
+                this.AppendLog("Ready. Confirm run-config (AD-8), then click Run POC. PsiStudio RunPipeline uses the same path.");
             }
             catch
             {
-                this.Title = "SaacAnalysisCasper PsiStudio Plugin (" + ScaffoldStub.Marker + ")";
-                this.Width = 520;
-                this.Height = 260;
+                this.Title = "SaacAnalysisCasper PsiStudio Plugin";
+                this.Width = 640;
+                this.Height = 420;
             }
         }
 
@@ -49,11 +58,31 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
             {
                 this.Show();
             }
+
+            // PsiStudio entry: start the same inject-only Core Poc proof as the Run POC button.
+            this.StartPocRun();
         }
 
         /// <inheritdoc/>
         public void StopPipeline()
         {
+            try
+            {
+                this.runner.Stop();
+            }
+            catch (Exception ex)
+            {
+                this.AppendLog("Stop warning: " + ex.Message);
+            }
+
+            lock (this.startGate)
+            {
+                this.isRunning = false;
+            }
+
+            this.SetStatusText("Stopped");
+            this.SetUiEnabled(true);
+
             if (this.IsVisible)
             {
                 this.Close();
@@ -61,7 +90,7 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         }
 
         /// <inheritdoc/>
-        public DateTime GetStartTime() => DateTime.UtcNow;
+        public DateTime GetStartTime() => PocInjectSources.DefaultInjectBaseUtc;
 
         /// <inheritdoc/>
         public PipelineReplaybleMode GetReplaybleMode() => PipelineReplaybleMode.Not;
@@ -75,6 +104,15 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
                 return;
             }
 
+            try
+            {
+                this.runner.Stop();
+            }
+            catch
+            {
+                // Best-effort cleanup for PsiStudio loader.
+            }
+
             if (this.IsVisible)
             {
                 this.Close();
@@ -84,7 +122,214 @@ namespace SaacAnalysisCasper.PsiStudioPlugin
         /// <inheritdoc/>
         protected override void OnClosing(CancelEventArgs e)
         {
+            try
+            {
+                this.runner.Stop();
+            }
+            catch
+            {
+                // Best-effort cleanup on close.
+            }
+
             base.OnClosing(e);
+        }
+
+        private void BrowseRunConfig_Click(object sender, RoutedEventArgs e)
+        {
+            if (this.RunConfigPathTextBox == null)
+            {
+                this.Fail("UI unavailable (XAML failed to load); cannot browse run-config.");
+                return;
+            }
+
+            OpenFileDialog dialog = new OpenFileDialog
+            {
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                Title = "Select AnalysisRunConfig JSON",
+                CheckFileExists = true,
+            };
+
+            string current = this.RunConfigPathTextBox.Text;
+            if (!string.IsNullOrWhiteSpace(current))
+            {
+                string? dir = null;
+                try
+                {
+                    dir = Path.GetDirectoryName(current);
+                }
+                catch (ArgumentException)
+                {
+                    dir = null;
+                }
+
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    dialog.InitialDirectory = dir;
+                }
+            }
+
+            if (dialog.ShowDialog(this) == true)
+            {
+                this.RunConfigPathTextBox.Text = dialog.FileName;
+                this.AppendLog("Run-config path set: " + dialog.FileName);
+            }
+        }
+
+        private void RunPoc_Click(object sender, RoutedEventArgs e)
+        {
+            this.StartPocRun();
+        }
+
+        private async void StartPocRun()
+        {
+            lock (this.startGate)
+            {
+                if (this.isRunning || this.runner.IsRunning)
+                {
+                    this.AppendLog("A Plugin POC run is already in progress.");
+                    return;
+                }
+
+                this.isRunning = true;
+            }
+
+            string runConfigPath = this.RunConfigPathTextBox != null
+                ? this.RunConfigPathTextBox.Text
+                : PluginRunConfigLoader.DefaultRunConfigPath;
+
+            if (string.IsNullOrWhiteSpace(runConfigPath) || !File.Exists(runConfigPath))
+            {
+                lock (this.startGate)
+                {
+                    this.isRunning = false;
+                }
+
+                this.Fail("Run-config JSON missing or not found: " + runConfigPath);
+                return;
+            }
+
+            AnalysisRunConfig runConfig;
+            try
+            {
+                runConfig = PluginRunConfigLoader.Load(runConfigPath);
+            }
+            catch (Exception ex)
+            {
+                lock (this.startGate)
+                {
+                    this.isRunning = false;
+                }
+
+                this.Fail("Failed to load Core AnalysisRunConfig: " + ex.Message);
+                return;
+            }
+
+            try
+            {
+                this.SetUiEnabled(false);
+                this.SetStatusText("Running…");
+                this.AppendLog("--- Plugin POC started ---");
+
+                await Task.Run(() => this.runner.Run(runConfig)).ConfigureAwait(true);
+
+                this.SetStatusText("Done");
+                this.AppendLog("--- Plugin POC finished ---");
+            }
+            catch (Exception ex)
+            {
+                this.Fail(ex.Message);
+            }
+            finally
+            {
+                lock (this.startGate)
+                {
+                    this.isRunning = false;
+                }
+
+                if (!this.Dispatcher.HasShutdownStarted)
+                {
+                    this.SetUiEnabled(true);
+                }
+            }
+        }
+
+        private void SetUiEnabled(bool enabled)
+        {
+            if (this.BrowseRunConfigButton != null)
+            {
+                this.BrowseRunConfigButton.IsEnabled = enabled;
+            }
+
+            if (this.RunPocButton != null)
+            {
+                this.RunPocButton.IsEnabled = enabled;
+            }
+
+            if (this.RunConfigPathTextBox != null)
+            {
+                this.RunConfigPathTextBox.IsEnabled = enabled;
+            }
+        }
+
+        private void Fail(string message)
+        {
+            this.SetStatusText("Failed");
+            this.AppendLog("ERROR: " + message);
+            if (!this.Dispatcher.HasShutdownStarted)
+            {
+                MessageBox.Show(
+                    this,
+                    message,
+                    "SaacAnalysisCasper PsiStudio Plugin",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        private void SetStatusText(string text)
+        {
+            if (this.Dispatcher.HasShutdownStarted || this.StatusTextBlock == null)
+            {
+                return;
+            }
+
+            this.StatusTextBlock.Text = text;
+        }
+
+        private void AppendLog(string message)
+        {
+            if (this.Dispatcher.HasShutdownStarted || this.LogTextBox == null)
+            {
+                return;
+            }
+
+            string line = DateTime.Now.ToString("HH:mm:ss") + "  " + message + Environment.NewLine;
+            this.LogTextBox.AppendText(line);
+            this.LogTextBox.ScrollToEnd();
+        }
+
+        private void AppendLogFromBackground(string message)
+        {
+            if (this.Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            if (!this.Dispatcher.CheckAccess())
+            {
+                try
+                {
+                    this.Dispatcher.BeginInvoke(new Action(() => this.AppendLog(message)));
+                }
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher shutting down between the check and BeginInvoke.
+                }
+
+                return;
+            }
+
+            this.AppendLog(message);
         }
     }
 }
