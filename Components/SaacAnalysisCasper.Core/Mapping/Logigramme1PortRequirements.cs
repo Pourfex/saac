@@ -45,12 +45,14 @@ namespace SaacAnalysisCasper.Core.Mapping
             {
                 PortRoleIds.ModuleGenerationSuccess,
                 PortRoleIds.DoorClosed,
+                PortRoleIds.PostDoorSelectOrValidation,
                 PortRoleIds.HandNearDoor,
                 PortRoleIds.ExitGeneratorZone,
                 PortRoleIds.GazeOnDoorClosedIndicator,
                 PortRoleIds.GazeOnDoor,
                 PortRoleIds.RepeatedValidationSequence,
                 PortRoleIds.DifferentGeneratorButton,
+                PortRoleIds.DoorClosure,
             });
 
         /// <summary>

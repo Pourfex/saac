@@ -106,43 +106,53 @@ namespace SaacAnalysisCasper.Core.Mapping
         public const string RemoveModule = "RemoveModule";
 
         /// <summary>
-        /// Agreed derived input: module-generation success from <see cref="ModuleStatus"/> (Story 2.3).
+        /// Agreed derived input (node 1): first-unseen module id on <see cref="ModuleStatus"/> (<c>Item1</c> = id), not success-substring (Story 2.3).
         /// </summary>
         public const string ModuleGenerationSuccess = "ModuleGenerationSuccess";
 
         /// <summary>
-        /// Agreed derived input: door-closed interpretation from generator door ports (Story 2.3).
+        /// Agreed derived input (nodes 2–6): sustained door-closed state from generator door ports (<c>Item1==false</c>) (Story 2.3).
         /// </summary>
         public const string DoorClosed = "DoorClosed";
 
         /// <summary>
-        /// Agreed derived input: hand near door from wrist + door pose (Story 2.3).
+        /// Agreed derived input (node 2): DoorClosed ∧ (SelectModule change | Validation) within 2 s (Story 2.3).
+        /// </summary>
+        public const string PostDoorSelectOrValidation = "PostDoorSelectOrValidation";
+
+        /// <summary>
+        /// Agreed derived input (node 3): hand within 1 m of generator door from wrist + door pose/bounds (Story 2.3).
         /// </summary>
         public const string HandNearDoor = "HandNearDoor";
 
         /// <summary>
-        /// Agreed derived input: exit generator zone from zone ports (Story 2.3).
+        /// Agreed derived input (node 3): GeneratorArea exit from zone ports (<c>info=="GeneratorArea"</c>, <c>state==false</c>) (Story 2.3).
         /// </summary>
         public const string ExitGeneratorZone = "ExitGeneratorZone";
 
         /// <summary>
-        /// Agreed derived input: gaze on door-closed indicator via <see cref="GazeEvent"/> object filter (Story 2.3).
+        /// Agreed derived input (node 4): gaze on door-closed indicator via <see cref="GazeEvent"/>, 150–250 ms within 3 s combine (Story 2.3).
         /// </summary>
         public const string GazeOnDoorClosedIndicator = "GazeOnDoorClosedIndicator";
 
         /// <summary>
-        /// Agreed derived input: gaze on door via <see cref="GazeEvent"/> object filter (Story 2.3).
+        /// Agreed derived input (node 4): gaze on door via <see cref="GazeEvent"/>, 150–250 ms within 3 s combine (Story 2.3).
         /// </summary>
         public const string GazeOnDoor = "GazeOnDoor";
 
         /// <summary>
-        /// Agreed derived input: repeated validation sequence from SelectModule + Validation (Story 2.3).
+        /// Agreed derived input (node 7): Validation×3 or (SelectModule+Validation)×3 (Story 2.3).
         /// </summary>
         public const string RepeatedValidationSequence = "RepeatedValidationSequence";
 
         /// <summary>
-        /// Agreed derived input: different-generator button path from SelectModule (Story 2.3).
+        /// Agreed derived input (node 8): different SelectModule then Validation (Story 2.3).
         /// </summary>
         public const string DifferentGeneratorButton = "DifferentGeneratorButton";
+
+        /// <summary>
+        /// Agreed derived input (node 9): door closure edge (open→closed), distinct from sustained <see cref="DoorClosed"/> (Story 2.3).
+        /// </summary>
+        public const string DoorClosure = "DoorClosure";
     }
 }
