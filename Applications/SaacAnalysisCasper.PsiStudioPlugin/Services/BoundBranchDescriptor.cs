@@ -6,11 +6,12 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
 {
     using System;
     using Microsoft.Psi;
+    using SaacAnalysisCasper.Core.Classification;
     using SaacAnalysisCasper.Core.Mapping;
     using SaacAnalysisCasper.Core.Poc;
 
     /// <summary>
-    /// One dual-user × W branch after Plugin bind, with its exportable Core C emitter.
+    /// One dual-user × W branch after Plugin bind, with optional Poc coincidence and/or classification exporters.
     /// </summary>
     public sealed class BoundBranchDescriptor
     {
@@ -19,28 +20,39 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         /// </summary>
         /// <param name="graphId">Graph id (e.g. <c>Poc</c>).</param>
         /// <param name="participant">Participant branch.</param>
-        /// <param name="windowMs">Window length W closed over by this branch's POC.</param>
-        /// <param name="coincidenceOut">Exportable coincidence C producer.</param>
+        /// <param name="windowMs">Window length W closed over by this branch.</param>
+        /// <param name="coincidenceOut">Exportable coincidence C producer (null for classification-only graphs).</param>
         /// <param name="expectCoincidenceRows">
-        /// When true, successful runs require ≥1 CSV data row; when false, zero C rows is valid science (Δ &gt; W).
+        /// When true and <paramref name="coincidenceOut"/> is non-null, successful runs require ≥1 CSV data row;
+        /// when false, zero C rows is valid science (Δ &gt; W). Ignored when coincidence is null.
         /// </param>
+        /// <param name="classificationOut">Optional classification product; null for Poc Plugin path.</param>
         public BoundBranchDescriptor(
             string graphId,
             ParticipantId participant,
             int windowMs,
-            IProducer<PocCoincidenceC> coincidenceOut,
-            bool expectCoincidenceRows)
+            IProducer<PocCoincidenceC>? coincidenceOut,
+            bool expectCoincidenceRows,
+            IProducer<ClassificationEvent>? classificationOut = null)
         {
             if (string.IsNullOrWhiteSpace(graphId))
             {
                 throw new ArgumentException("graphId must be non-empty.", nameof(graphId));
             }
 
+            if (coincidenceOut == null && classificationOut == null)
+            {
+                throw new ArgumentException(
+                    "BoundBranchDescriptor requires at least one export product: "
+                    + "provide CoincidenceOut (Poc) and/or ClassificationOut (Logigramme1).");
+            }
+
             this.GraphId = graphId;
             this.Participant = participant;
             this.WindowMs = windowMs;
-            this.CoincidenceOut = coincidenceOut ?? throw new ArgumentNullException(nameof(coincidenceOut));
-            this.ExpectCoincidenceRows = expectCoincidenceRows;
+            this.CoincidenceOut = coincidenceOut;
+            this.ClassificationOut = classificationOut;
+            this.ExpectCoincidenceRows = coincidenceOut != null && expectCoincidenceRows;
         }
 
         /// <summary>
@@ -59,12 +71,18 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
         public int WindowMs { get; }
 
         /// <summary>
-        /// Gets the Core coincidence C producer for store + CSV export.
+        /// Gets the Core coincidence C producer for store + CSV export, or null when this branch has none.
         /// </summary>
-        public IProducer<PocCoincidenceC> CoincidenceOut { get; }
+        public IProducer<PocCoincidenceC>? CoincidenceOut { get; }
 
         /// <summary>
-        /// Gets a value indicating whether this branch's CSV must contain ≥1 data row on success.
+        /// Gets the classification product producer, or null when this branch has none.
+        /// </summary>
+        public IProducer<ClassificationEvent>? ClassificationOut { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether this branch's coincidence CSV must contain ≥1 data row on success.
+        /// Always false when <see cref="CoincidenceOut"/> is null.
         /// </summary>
         public bool ExpectCoincidenceRows { get; }
     }

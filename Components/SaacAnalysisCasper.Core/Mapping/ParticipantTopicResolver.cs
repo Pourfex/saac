@@ -83,6 +83,19 @@ namespace SaacAnalysisCasper.Core.Mapping
                 return true;
             }
 
+            // Catalog Grab1/Grab2 (not M1-Grab / M2-Grab).
+            if (string.Equals(topic, "Grab1", StringComparison.Ordinal))
+            {
+                participant = ParticipantId.M1;
+                return true;
+            }
+
+            if (string.Equals(topic, "Grab2", StringComparison.Ordinal))
+            {
+                participant = ParticipantId.M2;
+                return true;
+            }
+
             participant = default(ParticipantId);
             return false;
         }

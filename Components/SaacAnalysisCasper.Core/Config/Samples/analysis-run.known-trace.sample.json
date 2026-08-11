@@ -1,0 +1,12 @@
+{
+
+  "windowMs": 1000,
+
+  "outputRoot": "C:\\Users\\alexi\\Documents\\Dev\\Ressources\\_analysis-out",
+
+  "graphs": [ "Logigramme1" ],
+
+  "knownTraceScenario": "full-tree-coverage"
+
+}
+

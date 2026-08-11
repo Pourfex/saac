@@ -10,6 +10,7 @@ namespace SaacAnalysisCasper.Replay.Services
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using SAAC;
+    using SaacAnalysisCasper.Core.Classification;
     using SaacAnalysisCasper.Core.Config;
     using SaacAnalysisCasper.Core.Export;
     using SaacAnalysisCasper.Core.Mapping;
@@ -33,6 +34,10 @@ namespace SaacAnalysisCasper.Replay.Services
         private readonly List<StreamWriter?> streamWriters;
         private readonly Dictionary<string, int> rowsByCsvPath;
         private readonly Dictionary<string, bool> requireRowsByCsvPath;
+        private readonly Dictionary<string, bool> coincidenceCsvByPath;
+        private readonly Dictionary<string, HashSet<ClassificationLabel>> labelsByCsvPath;
+        private readonly Dictionary<string, ClassificationLabel[]> expectedLabelsByCsvPath;
+        private readonly Dictionary<string, ClassificationLabel[]> forbiddenLabelsByCsvPath;
         private readonly object writerGate;
         private bool completedSuccessfully;
         private bool writersClosed;
@@ -51,6 +56,10 @@ namespace SaacAnalysisCasper.Replay.Services
             this.streamWriters = new List<StreamWriter?>();
             this.rowsByCsvPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             this.requireRowsByCsvPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            this.coincidenceCsvByPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            this.labelsByCsvPath = new Dictionary<string, HashSet<ClassificationLabel>>(StringComparer.OrdinalIgnoreCase);
+            this.expectedLabelsByCsvPath = new Dictionary<string, ClassificationLabel[]>(StringComparer.OrdinalIgnoreCase);
+            this.forbiddenLabelsByCsvPath = new Dictionary<string, ClassificationLabel[]>(StringComparer.OrdinalIgnoreCase);
             this.writerGate = new object();
         }
 
@@ -128,6 +137,7 @@ namespace SaacAnalysisCasper.Replay.Services
             Dictionary<string, PsiExporter> exportersByGraph =
                 new Dictionary<string, PsiExporter>(StringComparer.Ordinal);
             HashSet<string> csvPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> classificationRegisteredGraphs = new HashSet<string>(StringComparer.Ordinal);
 
             for (int i = 0; i < branches.Count; i++)
             {
@@ -137,134 +147,309 @@ namespace SaacAnalysisCasper.Replay.Services
                     throw new ArgumentException("branches contains a null entry.", nameof(branches));
                 }
 
-                if (!exportersByGraph.ContainsKey(branch.GraphId))
+                if (branch.CoincidenceOut == null && branch.ClassificationOut == null)
                 {
-                    string storeDirectory = ExportPathFormatter.FormatDerivedStoreDirectory(
-                        runConfig.OutputRoot,
-                        branch.GraphId,
-                        sessionName);
-                    string storeFolderName = ExportPathFormatter.FormatDerivedStoreName(
-                        branch.GraphId,
-                        sessionName);
-
-                    Directory.CreateDirectory(storeDirectory);
-
-                    PsiExporter exporter;
-                    try
-                    {
-                        // Path = attributed folder; leaf store name is fixed so Psi does not nest
-                        // {name}/{name}/ under the same leaf string used as both path and store name.
-                        exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
-                    }
-                    catch
-                    {
-                        TryDeleteDirectory(storeDirectory);
-                        throw;
-                    }
-
-                    exportersByGraph.Add(branch.GraphId, exporter);
-                    this.storeDirectories.Add(storeDirectory);
-
-                    this.log(
-                        "Derived store created: graph=" + branch.GraphId
-                        + " session=" + sessionName
-                        + " dataset=" + datasetIdentity
-                        + " storeFolder=" + storeFolderName
-                        + " storeName=" + DerivedStoreLeafName
-                        + " path=" + storeDirectory);
+                    throw new InvalidOperationException(
+                        "Branch graph=" + branch.GraphId
+                        + " participant=" + branch.Participant
+                        + " W=" + branch.WindowMs
+                        + " has neither CoincidenceOut nor ClassificationOut.");
                 }
 
-                PsiExporter graphExporter = exportersByGraph[branch.GraphId];
-                string streamRole = ExportStreamRoles.CoincidenceForWindow(branch.WindowMs);
-                string streamName = ExportPathFormatter.FormatStreamName(
-                    branch.GraphId,
-                    branch.Participant,
-                    streamRole);
-
-                // Store payload: WindowMs int (primitive; avoids custom DTO serializer registration).
-                IProducer<int> storePayload = branch.CoincidenceOut.Select(
-                    (PocCoincidenceC c) => c.WindowMs,
-                    DeliveryPolicy.Unlimited);
-                StoreExportHelper.Write(graphExporter, storePayload, streamName);
-                this.log(
-                    "Store stream wired: " + streamName
-                    + " participant=" + branch.Participant
-                    + " W=" + branch.WindowMs
-                    + " graph=" + branch.GraphId);
-
-                string csvPath = ExportPathFormatter.FormatCsvPath(
+                PsiExporter graphExporter = this.EnsureGraphExporter(
+                    exportersByGraph,
+                    pipeline,
                     runConfig.OutputRoot,
                     branch.GraphId,
                     sessionName,
-                    branch.Participant,
-                    branch.WindowMs);
+                    datasetIdentity);
 
-                if (!csvPathSet.Add(csvPath))
+                if (branch.CoincidenceOut != null)
                 {
-                    throw new InvalidOperationException(
-                        "Duplicate CSV export path '" + csvPath
-                        + "' — each graph×session×participant×W branch must map to a unique file.");
+                    this.AttachCoincidenceExport(
+                        graphExporter,
+                        branch,
+                        runConfig.OutputRoot,
+                        sessionName,
+                        datasetIdentity,
+                        csvPathSet);
                 }
 
-                StreamWriter streamWriter = new StreamWriter(csvPath, append: false, CsvExportFormat.Utf8WithoutBom);
-
-                // Track before WriteHeader so abort cleanup sees the file if header write fails.
-                this.streamWriters.Add(streamWriter);
-                this.csvPaths.Add(csvPath);
-                this.rowsByCsvPath[csvPath] = 0;
-                this.requireRowsByCsvPath[csvPath] = branch.ExpectCoincidenceRows;
-
-                CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
-                csvWriter.WriteCoincidenceHeader();
-
-                CsvExportWriter capturedWriter = csvWriter;
-                string capturedPath = csvPath;
-                object gate = this.writerGate;
-                branch.CoincidenceOut.Do(
-                    (PocCoincidenceC coincidence, Envelope envelope) =>
+                if (branch.ClassificationOut != null)
+                {
+                    if (classificationRegisteredGraphs.Add(branch.GraphId))
                     {
-                        lock (gate)
-                        {
-                            if (this.writersClosed)
-                            {
-                                return;
-                            }
+                        ClassificationSerialization.EnsureRegistered(graphExporter.Serializers);
+                    }
 
-                            if (coincidence == null)
-                            {
-                                throw new InvalidOperationException(
-                                    "Null PocCoincidenceC on CSV sink for '" + capturedPath
-                                    + "'; refusing to forge a coincidence row.");
-                            }
-
-                            capturedWriter.WriteCoincidenceRow(envelope.OriginatingTime, coincidence.WindowMs);
-                            this.rowsByCsvPath[capturedPath] = this.rowsByCsvPath[capturedPath] + 1;
-                        }
-                    },
-                    DeliveryPolicy.Unlimited);
-
-                this.log(
-                    "CSV export wired: participant=" + branch.Participant
-                    + " W=" + branch.WindowMs
-                    + " session=" + sessionName
-                    + " dataset=" + datasetIdentity
-                    + " graph=" + branch.GraphId
-                    + " expectRows=" + branch.ExpectCoincidenceRows
-                    + " path=" + csvPath);
+                    this.AttachClassificationExport(
+                        graphExporter,
+                        branch,
+                        runConfig.OutputRoot,
+                        sessionName,
+                        datasetIdentity,
+                        csvPathSet);
+                }
             }
         }
 
+        private PsiExporter EnsureGraphExporter(
+            Dictionary<string, PsiExporter> exportersByGraph,
+            Pipeline pipeline,
+            string outputRoot,
+            string graphId,
+            string sessionName,
+            string datasetIdentity)
+        {
+            PsiExporter existing;
+            if (exportersByGraph.TryGetValue(graphId, out existing))
+            {
+                return existing;
+            }
+
+            string storeDirectory = ExportPathFormatter.FormatDerivedStoreDirectory(
+                outputRoot,
+                graphId,
+                sessionName);
+            string storeFolderName = ExportPathFormatter.FormatDerivedStoreName(
+                graphId,
+                sessionName);
+
+            Directory.CreateDirectory(storeDirectory);
+
+            PsiExporter exporter;
+            try
+            {
+                // Path = attributed folder; leaf store name is fixed so Psi does not nest
+                // {name}/{name}/ under the same leaf string used as both path and store name.
+                exporter = PsiStore.Create(pipeline, DerivedStoreLeafName, storeDirectory);
+            }
+            catch
+            {
+                TryDeleteDirectory(storeDirectory);
+                throw;
+            }
+
+            exportersByGraph.Add(graphId, exporter);
+            this.storeDirectories.Add(storeDirectory);
+
+            this.log(
+                "Derived store created: graph=" + graphId
+                + " session=" + sessionName
+                + " dataset=" + datasetIdentity
+                + " storeFolder=" + storeFolderName
+                + " storeName=" + DerivedStoreLeafName
+                + " path=" + storeDirectory);
+
+            return exporter;
+        }
+
+        private void AttachCoincidenceExport(
+            PsiExporter graphExporter,
+            BoundBranchDescriptor branch,
+            string outputRoot,
+            string sessionName,
+            string datasetIdentity,
+            HashSet<string> csvPathSet)
+        {
+            string streamRole = ExportStreamRoles.CoincidenceForWindow(branch.WindowMs);
+            string streamName = ExportPathFormatter.FormatStreamName(
+                branch.GraphId,
+                branch.Participant,
+                streamRole);
+
+            // Store payload: WindowMs int (primitive; avoids custom DTO serializer registration).
+            IProducer<int> storePayload = branch.CoincidenceOut.Select(
+                (PocCoincidenceC c) => c.WindowMs,
+                DeliveryPolicy.Unlimited);
+            StoreExportHelper.Write(graphExporter, storePayload, streamName);
+            this.log(
+                "Store stream wired: " + streamName
+                + " participant=" + branch.Participant
+                + " W=" + branch.WindowMs
+                + " graph=" + branch.GraphId);
+
+            string csvPath = ExportPathFormatter.FormatCsvPath(
+                outputRoot,
+                branch.GraphId,
+                sessionName,
+                branch.Participant,
+                branch.WindowMs);
+
+            if (!csvPathSet.Add(csvPath))
+            {
+                throw new InvalidOperationException(
+                    "Duplicate CSV export path '" + csvPath
+                    + "' — each graph×session×participant×W branch must map to a unique file.");
+            }
+
+            StreamWriter streamWriter = new StreamWriter(csvPath, append: false, CsvExportFormat.Utf8WithoutBom);
+
+            // Track before WriteHeader so abort cleanup sees the file if header write fails.
+            this.streamWriters.Add(streamWriter);
+            this.csvPaths.Add(csvPath);
+            this.rowsByCsvPath[csvPath] = 0;
+            this.requireRowsByCsvPath[csvPath] = branch.ExpectCoincidenceRows;
+            this.coincidenceCsvByPath[csvPath] = true;
+
+            CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
+            csvWriter.WriteCoincidenceHeader();
+
+            CsvExportWriter capturedWriter = csvWriter;
+            string capturedPath = csvPath;
+            object gate = this.writerGate;
+            branch.CoincidenceOut.Do(
+                (PocCoincidenceC coincidence, Envelope envelope) =>
+                {
+                    lock (gate)
+                    {
+                        if (this.writersClosed)
+                        {
+                            return;
+                        }
+
+                        if (coincidence == null)
+                        {
+                            throw new InvalidOperationException(
+                                "Null PocCoincidenceC on CSV sink for '" + capturedPath
+                                + "'; refusing to forge a coincidence row.");
+                        }
+
+                        capturedWriter.WriteCoincidenceRow(envelope.OriginatingTime, coincidence.WindowMs);
+                        this.rowsByCsvPath[capturedPath] = this.rowsByCsvPath[capturedPath] + 1;
+                    }
+                },
+                DeliveryPolicy.Unlimited);
+
+            this.log(
+                "CSV export wired: participant=" + branch.Participant
+                + " W=" + branch.WindowMs
+                + " session=" + sessionName
+                + " dataset=" + datasetIdentity
+                + " graph=" + branch.GraphId
+                + " expectRows=" + branch.ExpectCoincidenceRows
+                + " path=" + csvPath);
+        }
+
+        private void AttachClassificationExport(
+            PsiExporter graphExporter,
+            BoundBranchDescriptor branch,
+            string outputRoot,
+            string sessionName,
+            string datasetIdentity,
+            HashSet<string> csvPathSet)
+        {
+            // Story 2.4: known-trace Classification store+CSV inspect; Story 2.5 PreTest catalog reuses this attach.
+            string streamRole = ExportStreamRoles.ClassificationForWindow(branch.WindowMs);
+            string streamName = ExportPathFormatter.FormatStreamName(
+                branch.GraphId,
+                branch.Participant,
+                streamRole);
+
+            StoreExportHelper.Write(graphExporter, branch.ClassificationOut, streamName);
+            this.log(
+                "Store stream wired: " + streamName
+                + " participant=" + branch.Participant
+                + " W=" + branch.WindowMs
+                + " graph=" + branch.GraphId
+                + " role=" + streamRole);
+
+            // Classification CSV shares AD-5 path shape with coincidence (one file per graph×session×participant×W).
+            string csvPath = ExportPathFormatter.FormatCsvPath(
+                outputRoot,
+                branch.GraphId,
+                sessionName,
+                branch.Participant,
+                branch.WindowMs);
+
+            if (!csvPathSet.Add(csvPath))
+            {
+                throw new InvalidOperationException(
+                    "Duplicate CSV export path '" + csvPath
+                    + "' — Classification and coincidence cannot share the same path for one branch; "
+                    + "or two classification branches collided.");
+            }
+
+            StreamWriter streamWriter = new StreamWriter(csvPath, append: false, CsvExportFormat.Utf8WithoutBom);
+            this.streamWriters.Add(streamWriter);
+            this.csvPaths.Add(csvPath);
+            this.rowsByCsvPath[csvPath] = 0;
+            this.requireRowsByCsvPath[csvPath] = branch.ExpectClassificationRows;
+            this.coincidenceCsvByPath[csvPath] = false;
+            this.labelsByCsvPath[csvPath] = new HashSet<ClassificationLabel>();
+            ClassificationLabel[] expected = new ClassificationLabel[branch.ExpectedClassificationLabels.Count];
+            for (int i = 0; i < branch.ExpectedClassificationLabels.Count; i++)
+            {
+                expected[i] = branch.ExpectedClassificationLabels[i];
+            }
+
+            this.expectedLabelsByCsvPath[csvPath] = expected;
+            ClassificationLabel[] forbidden = new ClassificationLabel[branch.ForbiddenClassificationLabels.Count];
+            for (int i = 0; i < branch.ForbiddenClassificationLabels.Count; i++)
+            {
+                forbidden[i] = branch.ForbiddenClassificationLabels[i];
+            }
+
+            this.forbiddenLabelsByCsvPath[csvPath] = forbidden;
+
+            CsvExportWriter csvWriter = new CsvExportWriter(streamWriter);
+            csvWriter.WriteClassificationHeader();
+
+            CsvExportWriter capturedWriter = csvWriter;
+            string capturedPath = csvPath;
+            object gate = this.writerGate;
+            branch.ClassificationOut.Do(
+                (ClassificationEvent classification, Envelope envelope) =>
+                {
+                    lock (gate)
+                    {
+                        if (this.writersClosed)
+                        {
+                            return;
+                        }
+
+                        if (classification == null)
+                        {
+                            throw new InvalidOperationException(
+                                "Null ClassificationEvent on CSV sink for '" + capturedPath
+                                + "'; refusing to forge a classification row.");
+                        }
+
+                        capturedWriter.WriteClassificationRow(envelope.OriginatingTime, classification);
+                        this.rowsByCsvPath[capturedPath] = this.rowsByCsvPath[capturedPath] + 1;
+                        this.labelsByCsvPath[capturedPath].Add(classification.Label);
+                    }
+                },
+                DeliveryPolicy.Unlimited);
+
+            this.log(
+                "Classification CSV export wired: participant=" + branch.Participant
+                + " W=" + branch.WindowMs
+                + " session=" + sessionName
+                + " dataset=" + datasetIdentity
+                + " graph=" + branch.GraphId
+                + " expectRows=" + branch.ExpectClassificationRows
+                + " path=" + csvPath);
+        }
+
         /// <summary>
-        /// Ensures CSV science gates for the inject schedule.
-        /// Matching-W branches (<see cref="BoundBranchDescriptor.ExpectCoincidenceRows"/> true) require ≥1 C row.
-        /// Non-matching branches must stay at 0 rows (fail-closed if a buggy POC still emits C when Δ &gt; W).
-        /// At least one matching-W branch must exist so an all-small-W config cannot vacuous-succeed.
+        /// Ensures CSV science gates for inject / known-trace schedules.
+        /// Coincidence: matching-W branches require ≥1 C row; non-matching must stay at 0.
+        /// Classification: documented known-trace hits (<see cref="BoundBranchDescriptor.ExpectClassificationRows"/>)
+        /// require ≥1 row (fail-closed on zero); expected/forbidden labels gated when configured.
         /// </summary>
         public void EnsureExportRowsPresent()
         {
             lock (this.writerGate)
             {
-                bool anyExpected = false;
+                if (this.csvPaths.Count == 0)
+                {
+                    throw new InvalidOperationException(
+                        "No CSV paths were attached; refusing vacuous export success.");
+                }
+
+                bool anyCoincidenceExpected = false;
+                bool sawCoincidenceCsv = false;
 
                 for (int i = 0; i < this.csvPaths.Count; i++)
                 {
@@ -281,33 +466,113 @@ namespace SaacAnalysisCasper.Replay.Services
                         requireRows = true;
                     }
 
-                    if (requireRows)
-                    {
-                        anyExpected = true;
-                        if (rows < 1)
-                        {
-                            throw new InvalidOperationException(
-                                "Export produced no coincidence rows for CSV '" + path
-                                + "' where inject Δ is inside left-exclusive lookback (−W, 0]. "
-                                + "Successful matching-W runs require at least one Core-emitted C.");
-                        }
-                    }
-                    else if (rows > 0)
+                    bool isCoincidence;
+                    if (!this.coincidenceCsvByPath.TryGetValue(path, out isCoincidence))
                     {
                         throw new InvalidOperationException(
-                            "Export produced coincidence rows for CSV '" + path
-                            + "' where inject Δ is outside lookback (−W, 0] (ExpectCoincidenceRows=false). "
-                            + "Negative-case W must stay header-only.");
+                            "CSV path '" + path
+                            + "' is missing coincidence/classification role tracking; refusing ambiguous export gate.");
+                    }
+
+                    if (isCoincidence)
+                    {
+                        sawCoincidenceCsv = true;
+                        if (requireRows)
+                        {
+                            anyCoincidenceExpected = true;
+                            if (rows < 1)
+                            {
+                                throw new InvalidOperationException(
+                                    "Export produced no coincidence rows for CSV '" + path
+                                    + "' where inject Δ is inside left-exclusive lookback (−W, 0]. "
+                                    + "Successful matching-W runs require at least one Core-emitted C.");
+                            }
+                        }
+                        else if (rows > 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Export produced coincidence rows for CSV '" + path
+                                + "' where inject Δ is outside lookback (−W, 0] (ExpectCoincidenceRows=false). "
+                                + "Negative-case W must stay header-only.");
+                        }
+                    }
+                    else
+                    {
+                        HashSet<ClassificationLabel> seenLabels;
+                        if (!this.labelsByCsvPath.TryGetValue(path, out seenLabels) || seenLabels == null)
+                        {
+                            seenLabels = new HashSet<ClassificationLabel>();
+                        }
+
+                        if (requireRows && rows < 1)
+                        {
+                            throw new InvalidOperationException(
+                                "Export produced no Classification rows for CSV '" + path
+                                + "' on a documented known-trace hit (ExpectClassificationRows=true). "
+                                + "Fail-closed: hit scenarios must emit ≥1 Alpha/Beta/Gamma row.");
+                        }
+
+                        ClassificationLabel[] expectedLabels;
+                        if (this.expectedLabelsByCsvPath.TryGetValue(path, out expectedLabels)
+                            && requireRows
+                            && expectedLabels != null
+                            && expectedLabels.Length > 0)
+                        {
+                            for (int e = 0; e < expectedLabels.Length; e++)
+                            {
+                                if (!seenLabels.Contains(expectedLabels[e]))
+                                {
+                                    throw new InvalidOperationException(
+                                        "Export Classification CSV '" + path
+                                        + "' missing expected label " + expectedLabels[e]
+                                        + " (seen labels: " + FormatSeenLabels(seenLabels) + ").");
+                                }
+                            }
+                        }
+
+                        ClassificationLabel[] forbidden;
+                        if (this.forbiddenLabelsByCsvPath.TryGetValue(path, out forbidden)
+                            && forbidden != null
+                            && forbidden.Length > 0)
+                        {
+                            for (int f = 0; f < forbidden.Length; f++)
+                            {
+                                if (seenLabels.Contains(forbidden[f]))
+                                {
+                                    throw new InvalidOperationException(
+                                        "Export Classification CSV '" + path
+                                        + "' contains forbidden label " + forbidden[f]
+                                        + " (seen labels: " + FormatSeenLabels(seenLabels) + ").");
+                                }
+                            }
+                        }
                     }
                 }
 
-                if (!anyExpected)
+                if (sawCoincidenceCsv && !anyCoincidenceExpected)
                 {
                     throw new InvalidOperationException(
                         "No CSV path expects coincidence rows for the inject schedule "
                         + "(all resolved W values are too small). Include at least one W that admits B_near.");
                 }
             }
+        }
+
+        private static string FormatSeenLabels(HashSet<ClassificationLabel> seenLabels)
+        {
+            if (seenLabels == null || seenLabels.Count == 0)
+            {
+                return "(none)";
+            }
+
+            List<string> names = new List<string>(seenLabels.Count);
+            foreach (ClassificationLabel label in seenLabels)
+            {
+                names.Add(label.ToString());
+            }
+
+            names.Sort(StringComparer.Ordinal);
+            return string.Join(", ", names);
         }
 
         /// <summary>

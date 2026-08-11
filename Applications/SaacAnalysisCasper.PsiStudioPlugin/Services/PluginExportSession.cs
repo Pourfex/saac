@@ -163,6 +163,14 @@ namespace SaacAnalysisCasper.PsiStudioPlugin.Services
                 }
 
                 PsiExporter graphExporter = exportersByGraph[branch.GraphId];
+                if (branch.CoincidenceOut == null)
+                {
+                    throw new InvalidOperationException(
+                        "Plugin export requires CoincidenceOut (Poc-only host); graph="
+                        + branch.GraphId + " participant=" + branch.Participant
+                        + " W=" + branch.WindowMs + ".");
+                }
+
                 string streamRole = ExportStreamRoles.CoincidenceForWindow(branch.WindowMs);
                 string streamName = ExportPathFormatter.FormatStreamName(
                     branch.GraphId,

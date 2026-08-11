@@ -10,7 +10,8 @@ namespace SaacAnalysisCasper.Core.Mapping
 
     /// <summary>
     /// Core-owned index of catalog topic strings that resolve to a participant.
-    /// Seeded only with real <c>experiment.json</c> topic names (<c>M1-*</c>/<c>M2-*</c> and <c>1-*</c>/<c>2-*</c>).
+    /// Seeded only with real <c>experiment.json</c> topic names (<c>M1-*</c>/<c>M2-*</c>, <c>1-*</c>/<c>2-*</c>, and catalog <c>Grab1</c>/<c>Grab2</c>).
+    /// Shared session topics (e.g. <c>GazeEvent</c>) are not indexed here.
     /// </summary>
     public sealed class ParticipantTopicIndex
     {
@@ -20,6 +21,7 @@ namespace SaacAnalysisCasper.Core.Mapping
             "M1-Validation",
             "M1-ModuleOut",
             "M1-ModuleOutZone",
+            "Grab1",
             "1-Head",
             "1-LeftWrist",
             "1-RightWrist",
@@ -34,8 +36,11 @@ namespace SaacAnalysisCasper.Core.Mapping
             "M2-Validation",
             "M2-ModuleOut",
             "M2-ModuleOutZone",
+            "Grab2",
             "2-Head",
             "2-LeftWrist",
+
+            // Catalog honesty: no 2-RightWrist in experiment.json.
             "2-GazeHeadOrientation",
             "2-EyeLeft",
             "2-EyeRight",

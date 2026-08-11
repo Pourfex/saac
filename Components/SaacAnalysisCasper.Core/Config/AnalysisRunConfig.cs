@@ -55,6 +55,14 @@ namespace SaacAnalysisCasper.Core.Config
         public IReadOnlyList<string> Graphs { get; private set; }
 
         /// <summary>
+        /// Gets the optional Logigramme 1 known-trace scenario id (Story 2.4).
+        /// When set (non-empty), Replay binds host-owned inject for Logigramme1; when absent/null, catalog bind (Story 2.5).
+        /// Same id is applied to both M1 and M2. Unknown ids fail closed in the host binder.
+        /// </summary>
+        [JsonProperty("knownTraceScenario")]
+        public string KnownTraceScenario { get; private set; }
+
+        /// <summary>
         /// Loads and validates an <see cref="AnalysisRunConfig"/> from a JSON file path.
         /// </summary>
         /// <param name="path">Path to a JSON run-config file.</param>
@@ -186,6 +194,13 @@ namespace SaacAnalysisCasper.Core.Config
                             + "; duplicates collide on CSV/store attribution paths.");
                     }
                 }
+            }
+
+            // Optional knownTraceScenario: null/absent OK; whitespace-only is invalid (fail closed).
+            if (this.KnownTraceScenario != null && string.IsNullOrWhiteSpace(this.KnownTraceScenario))
+            {
+                throw new InvalidOperationException(
+                    "Run-config 'knownTraceScenario' must be omitted/null or a non-empty scenario id (not whitespace).");
             }
         }
 

@@ -11,8 +11,10 @@ namespace SaacAnalysisCasper.Core.Export
     /// <summary>
     /// Thin helper to write Core producers into a host-opened <see cref="PsiExporter"/>.
     /// Hosts open stores via <c>PsiStore.Create</c>; Core processors must not open stores (AD-9).
-    /// For complex DTOs later: register serializers on the host pipeline/exporter before calling Write;
-    /// this helper does not open stores or register serializers itself.
+    /// Hosts writing <c>IProducer&lt;ClassificationEvent&gt;</c> must call
+    /// <c>ClassificationSerialization.EnsureRegistered</c> on the exporter/pipeline serializer set
+    /// before this helper — do not project ClassificationEvent to string/int to dodge serializers.
+    /// This helper does not open stores or register serializers itself.
     /// </summary>
     public static class StoreExportHelper
     {
@@ -40,8 +42,8 @@ namespace SaacAnalysisCasper.Core.Export
                 throw new ArgumentException("streamName must be non-empty.", nameof(streamName));
             }
 
-            // Known-primitive streams (e.g. int Marker) need no extra registration; DTO streams in later
-            // stories must register serializers on the host before this call.
+            // Known-primitive streams (e.g. int Marker) need no extra registration.
+            // ClassificationEvent streams: call ClassificationSerialization.EnsureRegistered first.
             exporter.Write(source, streamName);
         }
     }

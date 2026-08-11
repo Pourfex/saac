@@ -11,6 +11,7 @@ namespace SaacAnalysisCasper.Replay.Services
     using Microsoft.Psi.Data;
     using SAAC;
     using SAAC.PipelineServices;
+    using SaacAnalysisCasper.Core.Classification;
     using SaacAnalysisCasper.Core.Config;
     using SaacAnalysisCasper.Core.Graphs;
     using SaacAnalysisCasper.Core.Mapping;
@@ -90,13 +91,64 @@ namespace SaacAnalysisCasper.Replay.Services
             this.log(
                 "Sweep orchestration: one FullSpeed run; for each W in ["
                 + string.Join(", ", windowList)
-                + "] instantiate M1+M2 POC closed over that W (N CSV pairs).");
+                + "] instantiate M1+M2 compositions closed over that W.");
 
-            DateTime injectBase = ResolveInjectBaseOriginatingTime(replay, sessionName);
-            this.log(
-                "Poc inject schedule: A @ " + injectBase.ToString("o")
-                + ", B_near +" + PocInjectSources.NearGapMs + "ms, B_far +"
-                + PocInjectSources.FarGapMs + "ms (per participant, independent).");
+            IReadOnlyList<string> graphs = runConfig.Graphs;
+            bool needsPocInject = ContainsGraphId(graphs, "Poc");
+            string knownTraceScenario = runConfig.KnownTraceScenario;
+            bool needsLogigramme1KnownTrace = ContainsGraphId(graphs, "Logigramme1")
+                && !string.IsNullOrWhiteSpace(knownTraceScenario);
+
+            if (needsPocInject && needsLogigramme1KnownTrace)
+            {
+                throw new InvalidOperationException(
+                    "Cannot mix Poc inject with Logigramme1 known-trace in one run. "
+                    + "Use graphs:[\"Poc\"] alone, or graphs:[\"Logigramme1\"] with knownTraceScenario.");
+            }
+
+            if (needsLogigramme1KnownTrace && !Logigramme1InjectSources.IsKnownScenario(knownTraceScenario))
+            {
+                throw new InvalidOperationException(
+                    "Unknown knownTraceScenario '" + knownTraceScenario
+                    + "'. See Logigramme1KnownTraceScenarios.md for documented ids.");
+            }
+
+            int injectSpanMs = 0;
+            if (needsPocInject)
+            {
+                injectSpanMs = Math.Max(injectSpanMs, PocInjectSources.FarGapMs);
+            }
+
+            if (needsLogigramme1KnownTrace)
+            {
+                injectSpanMs = Math.Max(injectSpanMs, Logigramme1InjectSources.ScheduleSpanMs);
+            }
+
+            DateTime injectBase = default;
+            if (injectSpanMs > 0)
+            {
+                injectBase = ResolveInjectBaseOriginatingTime(replay, sessionName, injectSpanMs);
+                if (needsPocInject)
+                {
+                    this.log(
+                        "Poc inject schedule: A @ " + injectBase.ToString("o")
+                        + ", B_near +" + PocInjectSources.NearGapMs + "ms, B_far +"
+                        + PocInjectSources.FarGapMs + "ms (per participant, independent).");
+                }
+
+                if (needsLogigramme1KnownTrace)
+                {
+                    this.log(
+                        "Logigramme1 known-trace scenario '" + knownTraceScenario
+                        + "' inject base @ " + injectBase.ToString("o")
+                        + " (span ≤ " + Logigramme1InjectSources.ScheduleSpanMs
+                        + " ms; per participant, independent).");
+                }
+            }
+            else
+            {
+                this.log("Synthetic inject skipped (no Poc; Logigramme1 catalog mode or not selected).");
+            }
 
             Dictionary<string, ConnectorInfo> topicIndex = BuildTopicIndex(replay.Connectors);
             this.log("Topic index built: " + topicIndex.Count + " stream(s) across "
@@ -104,7 +156,6 @@ namespace SaacAnalysisCasper.Replay.Services
 
             List<BoundBranchDescriptor> boundBranches = new List<BoundBranchDescriptor>();
             HashSet<string> seenGraphIds = new HashSet<string>(StringComparer.Ordinal);
-            IReadOnlyList<string> graphs = runConfig.Graphs;
             for (int g = 0; g < graphs.Count; g++)
             {
                 string graphId = graphs[g];
@@ -116,49 +167,209 @@ namespace SaacAnalysisCasper.Replay.Services
 
                 this.log("Binding graph '" + graphId + "' for M1 and M2 across " + windowList.Count + " W value(s)...");
 
-                for (int p = 0; p < Participants.Length; p++)
+                if (string.Equals(graphId, "Poc", StringComparison.Ordinal))
                 {
-                    ParticipantId participant = Participants[p];
-
-                    // One inject source per participant; fan-out to every W composition (never merge M1/M2).
-                    IProducer<PocTaggedEvent> inject = PocInjectSources.Create(
-                        replay.Pipeline,
-                        participant,
+                    this.BindPocGraph(replay, injectBase, topicIndex, windowList, boundBranches);
+                }
+                else if (string.Equals(graphId, "Logigramme1", StringComparison.Ordinal))
+                {
+                    this.BindLogigramme1Graph(
+                        replay,
+                        topicIndex,
+                        windowList,
+                        boundBranches,
+                        knownTraceScenario,
                         injectBase);
-
-                    for (int w = 0; w < windowList.Count; w++)
-                    {
-                        int windowMs = windowList[w];
-                        IBindableComposition composition = CompositionFactory.Create(
-                            graphId,
-                            participant,
-                            replay.Pipeline,
-                            windowMs);
-
-                        this.BindParticipant(composition, participant, topicIndex, replay.Pipeline);
-
-                        IPocExportSurface pocSurface = composition as IPocExportSurface;
-                        if (pocSurface == null)
-                        {
-                            throw new InvalidOperationException(
-                                "Graph '" + graphId + "' did not expose IPocExportSurface for participant "
-                                + participant + " W=" + windowMs + ".");
-                        }
-
-                        inject.PipeTo(pocSurface.InjectIn, DeliveryPolicy.Unlimited);
-                        this.AttachProofSink(pocSurface, composition.GraphId, participant, windowMs);
-
-                        boundBranches.Add(new BoundBranchDescriptor(
-                            composition.GraphId,
-                            participant,
-                            windowMs,
-                            pocSurface.CoincidenceOut,
-                            PocInjectSources.ExpectsCoincidenceRows(windowMs)));
-                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Unknown or unsupported graph id '" + graphId
+                        + "' for dual-user bind. Supported: Poc, Logigramme1.");
                 }
             }
 
             return boundBranches;
+        }
+
+        private static bool ContainsGraphId(IReadOnlyList<string> graphs, string graphId)
+        {
+            for (int i = 0; i < graphs.Count; i++)
+            {
+                if (string.Equals(graphs[i], graphId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void BindPocGraph(
+            ReplayPipeline replay,
+            DateTime injectBase,
+            Dictionary<string, ConnectorInfo> topicIndex,
+            IReadOnlyList<int> windowList,
+            List<BoundBranchDescriptor> boundBranches)
+        {
+            for (int p = 0; p < Participants.Length; p++)
+            {
+                ParticipantId participant = Participants[p];
+
+                // One inject source per participant; fan-out to every W composition (never merge M1/M2).
+                IProducer<PocTaggedEvent> inject = PocInjectSources.Create(
+                    replay.Pipeline,
+                    participant,
+                    injectBase);
+
+                for (int w = 0; w < windowList.Count; w++)
+                {
+                    int windowMs = windowList[w];
+                    IBindableComposition composition = CompositionFactory.Create(
+                        "Poc",
+                        participant,
+                        replay.Pipeline,
+                        windowMs);
+
+                    this.BindParticipant(composition, participant, topicIndex, replay.Pipeline);
+
+                    IPocExportSurface pocSurface = composition as IPocExportSurface;
+                    if (pocSurface == null)
+                    {
+                        throw new InvalidOperationException(
+                            "Graph 'Poc' did not expose IPocExportSurface for participant "
+                            + participant + " W=" + windowMs + ".");
+                    }
+
+                    inject.PipeTo(pocSurface.InjectIn, DeliveryPolicy.Unlimited);
+                    this.AttachProofSink(pocSurface, composition.GraphId, participant, windowMs);
+
+                    boundBranches.Add(new BoundBranchDescriptor(
+                        composition.GraphId,
+                        participant,
+                        windowMs,
+                        pocSurface.CoincidenceOut,
+                        PocInjectSources.ExpectsCoincidenceRows(windowMs),
+                        classificationOut: null));
+                }
+            }
+        }
+
+        private void BindLogigramme1Graph(
+            ReplayPipeline replay,
+            Dictionary<string, ConnectorInfo> topicIndex,
+            IReadOnlyList<int> windowList,
+            List<BoundBranchDescriptor> boundBranches,
+            string knownTraceScenario,
+            DateTime injectBase)
+        {
+            bool knownTraceMode = !string.IsNullOrWhiteSpace(knownTraceScenario);
+
+            for (int p = 0; p < Participants.Length; p++)
+            {
+                ParticipantId participant = Participants[p];
+
+                // One inject bundle per participant; fan-out to every W composition (never merge M1/M2).
+                Logigramme1InjectSources.InjectBundle injectBundle = null;
+                if (knownTraceMode)
+                {
+                    injectBundle = Logigramme1InjectSources.Create(
+                        replay.Pipeline,
+                        participant,
+                        knownTraceScenario,
+                        injectBase);
+                }
+
+                for (int w = 0; w < windowList.Count; w++)
+                {
+                    int windowMs = windowList[w];
+                    IBindableComposition composition = CompositionFactory.Create(
+                        "Logigramme1",
+                        participant,
+                        replay.Pipeline,
+                        windowMs);
+
+                    if (knownTraceMode)
+                    {
+                        injectBundle.ConnectTo(composition);
+                        this.log(
+                            "Known-trace Connect " + participant + " scenario '" + knownTraceScenario
+                            + "' W=" + windowMs + ".");
+                    }
+                    else
+                    {
+                        this.BindParticipant(composition, participant, topicIndex, replay.Pipeline);
+                    }
+
+                    IClassificationExportSurface classificationSurface = composition as IClassificationExportSurface;
+                    if (classificationSurface == null)
+                    {
+                        throw new InvalidOperationException(
+                            "Graph 'Logigramme1' did not expose IClassificationExportSurface for participant "
+                            + participant + " W=" + windowMs + ".");
+                    }
+
+                    this.AttachClassificationProofSink(
+                        classificationSurface,
+                        composition.GraphId,
+                        participant,
+                        windowMs);
+
+                    bool expectClassificationRows = false;
+                    IReadOnlyList<ClassificationLabel> expectedClassificationLabels = Array.Empty<ClassificationLabel>();
+                    ClassificationLabel[]? forbiddenClassificationLabels = null;
+                    if (knownTraceMode)
+                    {
+                        Logigramme1InjectSources.ScenarioMeta scenarioMeta;
+                        if (!Logigramme1InjectSources.TryGetMeta(knownTraceScenario, out scenarioMeta))
+                        {
+                            throw new InvalidOperationException(
+                                "Unknown knownTraceScenario '" + knownTraceScenario
+                                + "'; cannot resolve Classification export gates.");
+                        }
+
+                        expectClassificationRows = scenarioMeta.ExpectClassificationRows;
+                        expectedClassificationLabels = scenarioMeta.ExpectedLabels;
+                        forbiddenClassificationLabels = scenarioMeta.ForbiddenLabels;
+                    }
+
+                    boundBranches.Add(new BoundBranchDescriptor(
+                        composition.GraphId,
+                        participant,
+                        windowMs,
+                        coincidenceOut: null,
+                        expectCoincidenceRows: false,
+                        classificationOut: classificationSurface.ClassificationOut,
+                        expectClassificationRows: expectClassificationRows,
+                        expectedClassificationLabels: expectedClassificationLabels,
+                        forbiddenClassificationLabels: forbiddenClassificationLabels));
+                }
+            }
+        }
+
+        private void AttachClassificationProofSink(
+            IClassificationExportSurface surface,
+            string graphId,
+            ParticipantId participant,
+            int windowMs)
+        {
+            LogStatus log = this.log;
+            surface.ClassificationOut.Do(
+                (ClassificationEvent classification, Envelope envelope) =>
+                {
+                    if (classification == null)
+                    {
+                        return;
+                    }
+
+                    log(
+                        "Classification emitted: graph=" + graphId
+                        + " participant=" + participant
+                        + " W=" + windowMs
+                        + " label=" + classification.Label
+                        + " @ " + envelope.OriginatingTime.ToString("o"));
+                },
+                DeliveryPolicy.Unlimited);
         }
 
         private void AttachProofSink(
@@ -180,11 +391,19 @@ namespace SaacAnalysisCasper.Replay.Services
                 DeliveryPolicy.Unlimited);
         }
 
-        private static DateTime ResolveInjectBaseOriginatingTime(ReplayPipeline replay, string sessionName)
+        private static DateTime ResolveInjectBaseOriginatingTime(
+            ReplayPipeline replay,
+            string sessionName,
+            int scheduleSpanMs)
         {
             if (replay.Dataset == null)
             {
                 throw new InvalidOperationException("ReplayPipeline.Dataset is null; cannot place inject OriginatingTimes.");
+            }
+
+            if (scheduleSpanMs < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(scheduleSpanMs), "scheduleSpanMs must be ≥ 0.");
             }
 
             Session? matched = null;
@@ -219,9 +438,9 @@ namespace SaacAnalysisCasper.Replay.Services
             // Nest inject inside the session interval so FullSpeed ReplayDescriptor delivers it.
             // Prefer Left+500ms; fall back toward the inclusive interior if the session is short.
             DateTime baseTime = interval.Left.AddMilliseconds(500);
-            DateTime nearInject = baseTime.AddMilliseconds(PocInjectSources.NearGapMs);
-            DateTime lastInject = baseTime.AddMilliseconds(PocInjectSources.FarGapMs);
-            if (!ScheduleFitsSessionInterval(interval, baseTime, nearInject, lastInject))
+            DateTime midInject = baseTime.AddMilliseconds(Math.Min(scheduleSpanMs, PocInjectSources.NearGapMs));
+            DateTime lastInject = baseTime.AddMilliseconds(scheduleSpanMs);
+            if (!ScheduleFitsSessionInterval(interval, baseTime, midInject, lastInject))
             {
                 if (interval.LeftEndpoint.Inclusive)
                 {
@@ -233,15 +452,15 @@ namespace SaacAnalysisCasper.Replay.Services
                     baseTime = interval.Left.AddTicks(1);
                 }
 
-                nearInject = baseTime.AddMilliseconds(PocInjectSources.NearGapMs);
-                lastInject = baseTime.AddMilliseconds(PocInjectSources.FarGapMs);
+                midInject = baseTime.AddMilliseconds(Math.Min(scheduleSpanMs, PocInjectSources.NearGapMs));
+                lastInject = baseTime.AddMilliseconds(scheduleSpanMs);
             }
 
-            if (!ScheduleFitsSessionInterval(interval, baseTime, nearInject, lastInject))
+            if (!ScheduleFitsSessionInterval(interval, baseTime, midInject, lastInject))
             {
                 throw new InvalidOperationException(
-                    "Session '" + sessionName + "' MessageOriginatingTimeInterval is too short to host the POC inject schedule "
-                    + "(needs ≥ " + PocInjectSources.FarGapMs + " ms after inject base, respecting endpoint inclusivity). "
+                    "Session '" + sessionName + "' MessageOriginatingTimeInterval is too short to host the inject schedule "
+                    + "(needs ≥ " + scheduleSpanMs + " ms after inject base, respecting endpoint inclusivity). "
                     + "interval=[" + interval.Left.ToString("o") + ", "
                     + (interval.RightEndpoint.Bounded ? interval.Right.ToString("o") : "∞") + "]"
                     + " LeftInclusive=" + interval.LeftEndpoint.Inclusive
@@ -254,15 +473,15 @@ namespace SaacAnalysisCasper.Replay.Services
         private static bool ScheduleFitsSessionInterval(
             TimeInterval interval,
             DateTime baseTime,
-            DateTime nearInject,
+            DateTime midInject,
             DateTime lastInject)
         {
-            if (!interval.PointIsWithin(baseTime) || !interval.PointIsWithin(nearInject))
+            if (!interval.PointIsWithin(baseTime) || !interval.PointIsWithin(midInject))
             {
                 return false;
             }
 
-            // Unbounded Right: B_far always fits once A and B_near are inside.
+            // Unbounded Right: last inject always fits once base and mid are inside.
             if (!interval.RightEndpoint.Bounded)
             {
                 return true;

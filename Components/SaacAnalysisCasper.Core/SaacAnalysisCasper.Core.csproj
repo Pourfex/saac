@@ -21,5 +21,10 @@
     <PackageReference Include="Microsoft.Psi.Data" Version="0.19.100.1-beta" />
     <PackageReference Include="Microsoft.Psi.Runtime" Version="0.19.100.1-beta-SAAC" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PsiFormats\PsiFormats.csproj" />
   </ItemGroup>
 </Project>

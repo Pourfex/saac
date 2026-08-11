@@ -30,7 +30,7 @@ namespace SaacAnalysisCasper.Core.Export
         public const string TimeFormat = "yyyy-MM-dd HH:mm:ss.fff";
 
         /// <summary>
-        /// Stub marker payload column header (Story 1.5). Alpha/Beta/Gamma columns land in Story 2.2.
+        /// Stub marker payload column header (Story 1.5).
         /// </summary>
         public const string MessageCountHeader = "MessageCount";
 
@@ -38,6 +38,21 @@ namespace SaacAnalysisCasper.Core.Export
         /// Coincidence C payload column header (Story 1.7). Appended after <see cref="TimeHeader"/>; micro-format unchanged.
         /// </summary>
         public const string WindowMsHeader = "WindowMs";
+
+        /// <summary>
+        /// Classification label column header (Story 2.2). Values are Alpha / Beta / Gamma.
+        /// </summary>
+        public const string LabelHeader = "Label";
+
+        /// <summary>
+        /// Classification participant column header (Story 2.2). Values are M1 / M2.
+        /// </summary>
+        public const string ParticipantHeader = "Participant";
+
+        /// <summary>
+        /// Classification graph-id column header (Story 2.2). Keeps rows self-describing (NFR4).
+        /// </summary>
+        public const string GraphIdHeader = "GraphId";
 
         private static readonly Encoding Utf8NoBomEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
