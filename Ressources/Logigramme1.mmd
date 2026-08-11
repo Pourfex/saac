@@ -1,0 +1,25 @@
+graph TD
+Start(Génération module réussie ?);
+Start -- Oui --> F2{Tentative de fermeture porte ? /main touchant la porte ou en
+direction de la porte};
+F2 -- Oui --> R1(Anticipation Gamma);
+4
+F2 -- Non --> Start;
+Start -- Non --> F3[Perturbation détectée - porte mal fermée si feedback visuel activé];
+F3 --> F4{Regard sur indicateur visuel porte fermée ? /50 à 150 ms/};
+F4 -- Oui --> F5{Regard sur porte ? /50 à 150 ms ET/OU Parole compréhension};
+F5 -- Oui --> F6{Fermeture de la porte ?};
+F5 -- Non --> F4;
+F6 -- Oui --> R2(Gamma - apprentissage);
+F4 -- Non --> F7{Regard sur la porte ? ET/OU parole compréhension};
+F7 -- Oui --> F8{Fermeture de la porte ?};
+F8 -- Oui --> R3(Gamma);
+F7 -- Non -->F9{Action sur bouton validé x3 ET parole incompréhension/agacement ?};
+F6 -- Non --> F9;
+F9 -- Oui --> R4(Alpha);
+F9 -- Non --> F10{Appuie sur différent bouton du générateur ET parole
+incompréhension / agacement ?};
+F10 -- Oui --> R5(Bêta);
+F10 -- Non --> F11{Fermeture de la porte ?};
+F11 -- Oui --> R6(Gamma);
+F11 -- Non --> F9;
