@@ -316,6 +316,7 @@ namespace SaacAnalysisCasper.Replay.Services
                         windowMs);
 
                     bool expectClassificationRows = false;
+                    bool assertNoClassificationRows = false;
                     IReadOnlyList<ClassificationLabel> expectedClassificationLabels = Array.Empty<ClassificationLabel>();
                     ClassificationLabel[]? forbiddenClassificationLabels = null;
                     if (knownTraceMode)
@@ -329,6 +330,7 @@ namespace SaacAnalysisCasper.Replay.Services
                         }
 
                         expectClassificationRows = scenarioMeta.ExpectClassificationRows;
+                        assertNoClassificationRows = scenarioMeta.AssertNoClassificationRows;
                         expectedClassificationLabels = scenarioMeta.ExpectedLabels;
                         forbiddenClassificationLabels = scenarioMeta.ForbiddenLabels;
                     }
@@ -342,8 +344,15 @@ namespace SaacAnalysisCasper.Replay.Services
                         classificationOut: classificationSurface.ClassificationOut,
                         expectClassificationRows: expectClassificationRows,
                         expectedClassificationLabels: expectedClassificationLabels,
-                        forbiddenClassificationLabels: forbiddenClassificationLabels));
+                        forbiddenClassificationLabels: forbiddenClassificationLabels,
+                        assertNoClassificationRows: assertNoClassificationRows));
                 }
+            }
+
+            if (knownTraceMode)
+            {
+                // After CompositionFactory ResetSession: keep seed ModuleStatus id from arming node-1 hits.
+                Logigramme1InjectSources.RegisterSeedModuleIds();
             }
         }
 

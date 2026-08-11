@@ -11,10 +11,11 @@ namespace SaacAnalysisCasper.Replay.Services
     using SAAC.PsiFormats;
     using SaacAnalysisCasper.Core.Classification;
     using SaacAnalysisCasper.Core.Graphs;
+    using SaacAnalysisCasper.Core.Indices;
     using SaacAnalysisCasper.Core.Mapping;
 
     /// <summary>
-    /// Host-owned catalog-typed known-trace inject for Logigramme 1 (Story 2.4 / AD-10).
+    /// Host-owned catalog-typed known-trace inject for Logigramme 1 Option C nodes 1–9 (Story 2.4 / AD-10).
     /// Mirrors <see cref="PocInjectSources"/> Sequence + fixed OT pattern; science stays in Core.
     /// </summary>
     /// <remarks>
@@ -24,18 +25,22 @@ namespace SaacAnalysisCasper.Replay.Services
     public static class Logigramme1InjectSources
     {
         /// <summary>
-        /// Host schedule fit span: max inject OT offset across scenarios is ~3800 ms (full-tree-coverage);
-        /// pad to 5 s so session nesting covers the sequenced tree without overstating Alpha's Core 5 s lookback.
+        /// Host schedule fit span: deepest path is ~1-miss(5s)+4-miss(3s)+7-miss(5s)+8-miss(5s)+N9 close (~18.5s);
+        /// pad to 25 s so session nesting covers node-9 scenarios.
         /// </summary>
-        public const int ScheduleSpanMs = 5000;
+        public const int ScheduleSpanMs = 25000;
+
+        /// <summary>
+        /// Neutral ModuleStatus id seeded at OT 0. Pre-register via
+        /// <see cref="RegisterSeedModuleIds"/> after CompositionFactory session reset so neutrals do not arm node 1.
+        /// </summary>
+        public const int SeedModuleStatusId = 0;
 
         private static readonly Vector3 Door1Pose = new Vector3(10f, 0f, 0f);
 
         private static readonly Vector3 Door2Pose = new Vector3(20f, 0f, 0f);
 
         private static readonly Vector3 WristFar = new Vector3(0f, 0f, 0f);
-
-        private static readonly Vector3 WristNearDoor1 = new Vector3(10.05f, 0f, 0f);
 
         private static readonly Vector3 PoseForward = new Vector3(0f, 0f, 1f);
 
@@ -57,7 +62,7 @@ namespace SaacAnalysisCasper.Replay.Services
         /// Returns whether a documented hit scenario expects ≥1 Classification CSV row.
         /// </summary>
         /// <param name="scenarioId">Known scenario id.</param>
-        /// <returns><c>true</c> for hit polarity scenarios that emit ExpectedLabels.</returns>
+        /// <returns><c>true</c> for emit-hit scenarios (nodes 3/6/7/8).</returns>
         public static bool ExpectsClassificationRows(string scenarioId)
         {
             ScenarioMeta meta;
@@ -68,6 +73,15 @@ namespace SaacAnalysisCasper.Replay.Services
             }
 
             return meta.ExpectClassificationRows;
+        }
+
+        /// <summary>
+        /// Pre-registers the seed ModuleStatus id so OT-0 neutrals do not fire node-1 hits.
+        /// Call once after Logigramme1 CompositionFactory session reset (known-trace bind).
+        /// </summary>
+        public static void RegisterSeedModuleIds()
+        {
+            ModuleGenerationSuccessFilter.TryRegisterFirstUnseen(SeedModuleStatusId);
         }
 
         /// <summary>
@@ -143,122 +157,143 @@ namespace SaacAnalysisCasper.Replay.Services
             switch (scenarioId)
             {
                 case "N1-hit-success":
-                case "N2-hit-handnear":
-                    timeline.AddPose(PortRoleIds.LeftWrist, 0, WristNearDoor1, PoseForward);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 0, open: true, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 0, open: true, Door2Pose);
-                    timeline.AddModuleStatus(200, 1, "success");
+                    // Doors CLOSED so node 2 can arm (open door would immediate-miss 2→3).
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 50, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 50, open: false, Door2Pose);
+                    timeline.AddModuleSuccess(100);
+                    timeline.AddDoorHeartbeat(100, 6000, 500, open: false);
                     break;
 
-                case "N1-miss-success":
-                    timeline.AddPose(PortRoleIds.LeftWrist, 0, WristNearDoor1, PoseForward);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 0, open: true, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 0, open: true, Door2Pose);
-                    timeline.AddModuleStatus(200, 0, "failure");
+                case "N1-miss-timeout":
+                    timeline.AddDoorHeartbeat(0, 5500, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(0, 5500, 500);
                     break;
 
-                case "N2-miss-handnear":
-                    timeline.AddPose(PortRoleIds.LeftWrist, 0, WristFar, PoseForward);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 0, open: true, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 0, open: true, Door2Pose);
-                    timeline.AddModuleStatus(200, 1, "success");
+                case "N2-hit-post-door":
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 0, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 0, open: false, Door2Pose);
+                    timeline.AddModuleSuccess(100);
+                    timeline.AddSelectModule(300, "ModuleB");
+                    timeline.AddDoorHeartbeat(400, 2000, 500, open: false);
                     break;
 
-                case "N3-hit-indicator":
-                    timeline.AddGazeDwell(50, "indicateur", sampleCount: 6, stepMs: 40);
-                    timeline.AddGazeDwell(400, "porte", sampleCount: 6, stepMs: 40);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 580, open: false, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 580, open: true, Door2Pose);
+                case "N2-miss-door-open":
+                    timeline.AddModuleSuccess(100);
+                    timeline.AddDoorHeartbeat(100, 3000, 500, open: true);
                     break;
 
-                case "N3-miss-indicator":
-                    timeline.AddGaze(100, gazing: true, " unrelated-object ");
-                    timeline.AddGaze(140, gazing: false, " unrelated-object ");
+                case "N3-hit-c-gamma":
+                    // 1-hit → open-door 2-miss → 3; then DoorClosed ∧ GeneratorArea exit → Gamma.
+                    timeline.AddModuleSuccess(100);
+                    timeline.AddGeneratorAreaExit(250);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 300, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 300, open: false, Door2Pose);
+                    timeline.AddDoorHeartbeat(400, 1500, 500, open: false);
                     break;
 
-                case "N4-hit-gaze-door":
-                case "N5-hit-door-closed-gaze":
-                    timeline.AddGazeDwell(100, "porte", sampleCount: 6, stepMs: 40);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 280, open: false, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 280, open: true, Door2Pose);
+                case "N3-miss-c":
+                    timeline.AddModuleSuccess(100);
+                    timeline.AddDoorHeartbeat(100, 6000, 500, open: true);
                     break;
 
-                case "N4-miss-gaze-door":
-                case "N5-miss-door-closed-gaze":
-                    timeline.AddGazeDwell(100, "porte", sampleCount: 6, stepMs: 40);
+                case "N4-hit-gaze":
+                    timeline.PathToNode4();
+                    timeline.AddGazeDwell(5200, "porte", sampleCount: 6, stepMs: 40);
+                    timeline.AddDoorHeartbeat(5500, 9000, 500, open: true);
                     break;
 
-                case "N6-hit-alpha":
-                    timeline.AddSelectModule(0, "ModuleA");
-                    timeline.AddValidation(100, true);
-                    timeline.AddValidation(150, false);
-                    timeline.AddValidation(200, true);
-                    timeline.AddValidation(250, false);
-                    timeline.AddValidation(300, true);
-                    timeline.AddValidation(350, false);
+                case "N4-miss-gaze":
+                    timeline.PathToNode4();
+                    timeline.AddDoorHeartbeat(5000, 9000, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(5000, 9000, 500);
                     break;
 
-                case "N6-miss-alpha":
-                    timeline.AddSelectModule(0, "ModuleA");
-                    timeline.AddValidation(100, true);
-                    timeline.AddValidation(150, false);
+                case "N5-hit-d-silence":
+                    timeline.PathToNode4();
+                    // Close while still on 4 so entry to 5 samples DoorClosed=true → D silence.
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 5200, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 5200, open: false, Door2Pose);
+                    timeline.AddDoorHeartbeat(5300, 9000, 500, open: false);
+                    timeline.AddModuleStatusHeartbeat(5000, 9000, 500);
                     break;
 
-                case "N7-hit-beta":
-                    timeline.AddSelectModule(0, "ModuleA");
-                    timeline.AddSelectModule(200, "ModuleB");
+                case "N5-miss-d":
+                    // Differ from N4-miss: enter node 5 window then keep door OPEN so 5→7 miss.
+                    timeline.PathToNode4();
+                    timeline.AddDoorHeartbeat(5000, 12000, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(5000, 12000, 500);
                     break;
 
-                case "N7-miss-beta":
-                    timeline.AddSelectModule(0, "ModuleA");
+                case "N6-hit-e-gamma":
+                    timeline.PathToNode4();
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 5100, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 5100, open: false, Door2Pose);
+                    timeline.AddGazeDwell(5200, "porte", sampleCount: 6, stepMs: 40);
+                    timeline.AddDoorHeartbeat(5500, 8000, 500, open: false);
                     break;
 
-                case "N8-hit-door-else-gamma":
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 500, open: false, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 500, open: true, Door2Pose);
+                case "N6-miss-e":
+                    timeline.PathToNode4();
+                    timeline.AddGazeDwell(5200, "porte", sampleCount: 6, stepMs: 40);
+                    timeline.AddDoorHeartbeat(5500, 9000, 500, open: true);
                     break;
 
-                case "N8-miss-door-else":
-                    // Neutrals only (doors stay open).
+                case "N7-hit-alpha":
+                    timeline.PathToNode7OpenDoor();
+                    // Enter ~8000; Reset sets previousValidation=true — seed false first, then ×3 rising.
+                    timeline.AddValidation(8050, false);
+                    timeline.AddValidation(8100, true);
+                    timeline.AddValidation(8200, false);
+                    timeline.AddValidation(8300, true);
+                    timeline.AddValidation(8400, false);
+                    timeline.AddValidation(8500, true);
+                    timeline.AddValidation(8600, false);
+                    timeline.AddDoorHeartbeat(8000, 10000, 500, open: true);
                     break;
 
-                case "full-tree-coverage":
-                    // Sequenced hits + mid-timeline misses; gaps keep mux competitors off each other's ticks.
-                    // --- Anticipation hit (success ∧ hand-near) ---
-                    timeline.AddPose(PortRoleIds.LeftWrist, 100, WristNearDoor1, PoseForward);
-                    timeline.AddModuleStatus(200, 1, "success");
-                    // --- Silence then Anticipation miss (success, wrist far → no AnticipationΓ) ---
-                    timeline.AddPose(PortRoleIds.LeftWrist, 400, WristFar, PoseForward);
-                    timeline.AddModuleStatus(400, 0, "idle");
-                    timeline.AddModuleStatus(600, 1, "success");
-                    timeline.AddModuleStatus(800, 0, "idle");
-                    // --- Indicator dwell keep-alive then GazeΓ (gaze door ∧ door close) ---
-                    timeline.AddGazeDwell(900, "indicateur", sampleCount: 6, stepMs: 40);
-                    timeline.AddGazeDwell(1200, "porte", sampleCount: 6, stepMs: 40);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 1450, open: false, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 1450, open: true, Door2Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 1700, open: true, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 1700, open: true, Door2Pose);
-                    timeline.AddGaze(1700, gazing: false, objectType: string.Empty);
-                    // --- Gaze miss (door dwell, doors stay OPEN → no GazeΓ) ---
-                    timeline.AddGazeDwell(1900, "porte", sampleCount: 6, stepMs: 40);
-                    timeline.AddGaze(2200, gazing: false, objectType: string.Empty);
-                    // --- Alpha hit (Validation×3) ---
-                    timeline.AddSelectModule(2400, "ModuleA");
-                    timeline.AddValidation(2450, true);
-                    timeline.AddValidation(2500, false);
-                    timeline.AddValidation(2550, true);
-                    timeline.AddValidation(2600, false);
-                    timeline.AddValidation(2650, true);
-                    timeline.AddValidation(2700, false);
-                    timeline.AddValidation(2900, false);
-                    // --- Beta hit (SelectModule A→B) ---
-                    timeline.AddSelectModule(3100, "ModuleB");
-                    // --- DoorElseΓ (door close; no gaze/success/hand) ---
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 3600, open: false, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 3600, open: true, Door2Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 3800, open: true, Door1Pose);
-                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 3800, open: true, Door2Pose);
+                case "N7-miss-alpha":
+                    timeline.PathToNode7OpenDoor();
+                    timeline.AddValidation(8100, true);
+                    timeline.AddValidation(8200, false);
+                    timeline.AddDoorHeartbeat(8000, 14000, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(8000, 14000, 500);
+                    break;
+
+                case "N8-hit-beta":
+                    timeline.PathToNode8();
+                    // Enter ~13000; Reset sets previousValidation=true — false then rising after Select A→B.
+                    timeline.AddSelectModule(13100, "ModuleA");
+                    timeline.AddSelectModule(13200, "ModuleB");
+                    timeline.AddValidation(13250, false);
+                    timeline.AddValidation(13300, true);
+                    timeline.AddValidation(13400, false);
+                    timeline.AddDoorHeartbeat(13000, 15000, 500, open: true);
+                    break;
+
+                case "N8-miss-beta":
+                    timeline.PathToNode8();
+                    timeline.AddSelectModule(13100, "ModuleB");
+                    timeline.AddDoorHeartbeat(13000, 19000, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(13000, 19000, 500);
+                    break;
+
+                case "N9-hit-d-silence":
+                    timeline.PathToNode9();
+                    // Single open→closed DoorClosure; override any PathToNode9 open heartbeats ≥18100.
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 18100, open: true, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 18100, open: true, Door2Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 18200, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 18200, open: false, Door2Pose);
+                    timeline.AddDoorHeartbeat(18300, 20000, 500, open: false);
+                    // Explicit Upsert at 18500 (PathToNode9 previously left this OT open).
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor1, 18500, open: false, Door1Pose);
+                    timeline.AddDoor(PortRoleIds.GeneratorDoor2, 18500, open: false, Door2Pose);
+                    break;
+
+                case "N9-miss-d":
+                    timeline.PathToNode9();
+                    timeline.AddDoorHeartbeat(18000, 24000, 500, open: true);
+                    timeline.AddModuleStatusHeartbeat(18000, 24000, 500);
                     break;
 
                 default:
@@ -280,60 +315,65 @@ namespace SaacAnalysisCasper.Replay.Services
         private static readonly ClassificationLabel[] ExpectBeta =
             new[] { ClassificationLabel.Beta };
 
-        private static readonly ClassificationLabel[] ExpectAlphaBetaGamma =
-            new[] { ClassificationLabel.Alpha, ClassificationLabel.Beta, ClassificationLabel.Gamma };
+        private static readonly ClassificationLabel[] ForbidAlphaBeta =
+            new[] { ClassificationLabel.Alpha, ClassificationLabel.Beta };
 
-        private static readonly ClassificationLabel[] ForbidGamma =
-            new[] { ClassificationLabel.Gamma };
-
-        private static readonly ClassificationLabel[] ForbidAlpha =
-            new[] { ClassificationLabel.Alpha };
-
-        private static readonly ClassificationLabel[] ForbidBeta =
-            new[] { ClassificationLabel.Beta };
-
-        private static readonly ClassificationLabel[] ForbidGammaBeta =
-            new[] { ClassificationLabel.Gamma, ClassificationLabel.Beta };
+        private static readonly ClassificationLabel[] ForbidBetaGamma =
+            new[] { ClassificationLabel.Beta, ClassificationLabel.Gamma };
 
         private static readonly ClassificationLabel[] ForbidAlphaGamma =
             new[] { ClassificationLabel.Alpha, ClassificationLabel.Gamma };
 
-        private static readonly ClassificationLabel[] ForbidAlphaBeta =
-            new[] { ClassificationLabel.Alpha, ClassificationLabel.Beta };
+        private static readonly ClassificationLabel[] ForbidAllLabels =
+            new[] { ClassificationLabel.Alpha, ClassificationLabel.Beta, ClassificationLabel.Gamma };
 
         private static Dictionary<string, ScenarioMeta> BuildScenarioIndex()
         {
             Dictionary<string, ScenarioMeta> map = new Dictionary<string, ScenarioMeta>(StringComparer.Ordinal);
-            Add(map, "N1-hit-success", "N1", true, true, ExpectGamma, NoForbidden);
-            Add(map, "N1-miss-success", "N1", false, false, NoExpected, ForbidGamma);
-            Add(map, "N2-hit-handnear", "N2", true, true, ExpectGamma, NoForbidden);
-            Add(map, "N2-miss-handnear", "N2", false, false, NoExpected, ForbidGamma);
-            Add(map, "N3-hit-indicator", "N3", true, true, ExpectGamma, NoForbidden);
-            Add(map, "N3-miss-indicator", "N3", false, false, NoExpected, ForbidGamma);
-            Add(map, "N4-hit-gaze-door", "N4", true, true, ExpectGamma, NoForbidden);
-            Add(map, "N4-miss-gaze-door", "N4", false, false, NoExpected, ForbidGamma);
-            Add(map, "N5-hit-door-closed-gaze", "N5", true, true, ExpectGamma, NoForbidden);
-            Add(map, "N5-miss-door-closed-gaze", "N5", false, false, NoExpected, ForbidGamma);
-            Add(map, "N6-hit-alpha", "N6", true, true, ExpectAlpha, ForbidGammaBeta);
-            Add(map, "N6-miss-alpha", "N6", false, false, NoExpected, ForbidAlpha);
-            Add(map, "N7-hit-beta", "N7", true, true, ExpectBeta, ForbidAlphaGamma);
-            Add(map, "N7-miss-beta", "N7", false, false, NoExpected, ForbidBeta);
-            Add(map, "N8-hit-door-else-gamma", "N8", true, true, ExpectGamma, ForbidAlphaBeta);
-            Add(map, "N8-miss-door-else", "N8", false, false, NoExpected, ForbidGamma);
-            Add(map, "full-tree-coverage", "ALL", true, true, ExpectAlphaBetaGamma, NoForbidden);
+            // Structural hits/misses: no required emit; ForbidAll catches accidental labels.
+            Add(map, "N1-hit-success", "1", true, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N1-miss-timeout", "1", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N2-hit-post-door", "2", true, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N2-miss-door-open", "2", false, false, false, NoExpected, ForbidAllLabels);
+            // Emit hits 3/6/7/8 — forbid competitor labels (BH-01).
+            Add(map, "N3-hit-c-gamma", "3", true, true, false, ExpectGamma, ForbidAlphaBeta);
+            Add(map, "N3-miss-c", "3", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N4-hit-gaze", "4", true, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N4-miss-gaze", "4", false, false, false, NoExpected, ForbidAllLabels);
+            // D silence: hard zero-row gate via AssertNoClassificationRows.
+            Add(map, "N5-hit-d-silence", "5", true, false, true, NoExpected, ForbidAllLabels);
+            Add(map, "N5-miss-d", "5", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N6-hit-e-gamma", "6", true, true, false, ExpectGamma, ForbidAlphaBeta);
+            Add(map, "N6-miss-e", "6", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N7-hit-alpha", "7", true, true, false, ExpectAlpha, ForbidBetaGamma);
+            Add(map, "N7-miss-alpha", "7", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N8-hit-beta", "8", true, true, false, ExpectBeta, ForbidAlphaGamma);
+            Add(map, "N8-miss-beta", "8", false, false, false, NoExpected, ForbidAllLabels);
+            Add(map, "N9-hit-d-silence", "9", true, false, true, NoExpected, ForbidAllLabels);
+            Add(map, "N9-miss-d", "9", false, false, false, NoExpected, ForbidAllLabels);
             return map;
         }
 
         private static void Add(
             Dictionary<string, ScenarioMeta> map,
             string id,
-            string miroNode,
+            string node,
             bool isHit,
             bool expectRows,
+            bool assertNoClassificationRows,
             ClassificationLabel[]? expected = null,
             ClassificationLabel[]? forbidden = null)
         {
-            map.Add(id, new ScenarioMeta(id, miroNode, isHit, expectRows, expected ?? NoExpected, forbidden ?? NoForbidden));
+            map.Add(
+                id,
+                new ScenarioMeta(
+                    id,
+                    node,
+                    isHit,
+                    expectRows,
+                    assertNoClassificationRows,
+                    expected ?? NoExpected,
+                    forbidden ?? NoForbidden));
         }
 
         /// <summary>
@@ -345,25 +385,30 @@ namespace SaacAnalysisCasper.Replay.Services
             /// Initializes a new instance of the <see cref="ScenarioMeta"/> struct.
             /// </summary>
             /// <param name="scenarioId">Scenario id.</param>
-            /// <param name="miroNode">Miro node key (N1–N8 or ALL for full-tree).</param>
+            /// <param name="node">Option C node key ("1"–"9").</param>
             /// <param name="isHit">Hit vs miss polarity.</param>
             /// <param name="expectClassificationRows">When true, export gate requires ≥1 Classification row.</param>
+            /// <param name="assertNoClassificationRows">
+            /// When true (D-hit silence only), export gate fails if any Classification row appears.
+            /// </param>
             /// <param name="expectedLabels">
-            /// Labels that must all appear in Classification CSV for hits; empty for miss-only.
+            /// Labels that must all appear in Classification CSV for emit hits; empty otherwise.
             /// </param>
             /// <param name="forbiddenLabels">Labels that must not appear (empty for none).</param>
             public ScenarioMeta(
                 string scenarioId,
-                string miroNode,
+                string node,
                 bool isHit,
                 bool expectClassificationRows,
+                bool assertNoClassificationRows,
                 ClassificationLabel[] expectedLabels,
                 ClassificationLabel[] forbiddenLabels)
             {
                 this.ScenarioId = scenarioId;
-                this.MiroNode = miroNode;
+                this.Node = node;
                 this.IsHit = isHit;
                 this.ExpectClassificationRows = expectClassificationRows;
+                this.AssertNoClassificationRows = assertNoClassificationRows;
                 this.ExpectedLabels = expectedLabels ?? NoExpected;
                 this.ForbiddenLabels = forbiddenLabels ?? NoForbidden;
             }
@@ -371,8 +416,8 @@ namespace SaacAnalysisCasper.Replay.Services
             /// <summary>Gets the scenario id.</summary>
             public string ScenarioId { get; }
 
-            /// <summary>Gets the Miro node id.</summary>
-            public string MiroNode { get; }
+            /// <summary>Gets the Option C node id ("1"–"9").</summary>
+            public string Node { get; }
 
             /// <summary>Gets a value indicating whether this is a hit scenario.</summary>
             public bool IsHit { get; }
@@ -380,7 +425,12 @@ namespace SaacAnalysisCasper.Replay.Services
             /// <summary>Gets a value indicating whether Classification CSV must have ≥1 data row.</summary>
             public bool ExpectClassificationRows { get; }
 
-            /// <summary>Gets expected labels that must all appear for hit scenarios (empty for miss).</summary>
+            /// <summary>
+            /// Gets a value indicating whether Classification CSV must stay header-only (D-hit silence).
+            /// </summary>
+            public bool AssertNoClassificationRows { get; }
+
+            /// <summary>Gets expected labels that must all appear for emit-hit scenarios (empty otherwise).</summary>
             public ClassificationLabel[] ExpectedLabels { get; }
 
             /// <summary>Gets labels that must not appear in Classification CSV (empty for none).</summary>
@@ -501,7 +551,7 @@ namespace SaacAnalysisCasper.Replay.Services
                 this.AddValidation(1, false);
                 this.moduleOut.Add((false, this.At(0)));
                 this.moduleOutZone.Add((false, this.At(0)));
-                this.AddModuleStatus(0, 0, "idle");
+                this.AddModuleStatus(0, SeedModuleStatusId, "idle");
                 this.AddDoor(PortRoleIds.GeneratorDoor1, 0, open: true, Door1Pose);
                 this.AddDoor(PortRoleIds.GeneratorDoor2, 0, open: true, Door2Pose);
                 this.zone1.Add(((1, false, string.Empty), this.At(0)));
@@ -515,6 +565,73 @@ namespace SaacAnalysisCasper.Replay.Services
                 this.grab.Add(((0, false, string.Empty), this.At(0)));
                 this.addModule.Add((NeutralBattery(), this.At(0)));
                 this.removeModule.Add((NeutralBattery(), this.At(0)));
+            }
+
+            /// <summary>Node-1 miss timeout (5 s) → node 4; heartbeats keep miss clocks advancing.</summary>
+            public void PathToNode4()
+            {
+                this.AddDoorHeartbeat(0, 5200, 500, open: true);
+                this.AddModuleStatusHeartbeat(0, 5200, 500);
+            }
+
+            /// <summary>1-miss → 4-miss → 5 with door open → 7 (~8000 ms).</summary>
+            public void PathToNode7OpenDoor()
+            {
+                this.PathToNode4();
+                this.AddDoorHeartbeat(5000, 8500, 500, open: true);
+                this.AddModuleStatusHeartbeat(5000, 8500, 500);
+            }
+
+            /// <summary>Path to 7 then 7-miss (5 s) → 8 (~13000 ms).</summary>
+            public void PathToNode8()
+            {
+                this.PathToNode7OpenDoor();
+                this.AddValidation(8100, true);
+                this.AddValidation(8200, false);
+                this.AddDoorHeartbeat(8000, 13500, 500, open: true);
+                this.AddModuleStatusHeartbeat(8000, 13500, 500);
+            }
+
+            /// <summary>Path to 8 then 8-miss (5 s) → 9 (~18000 ms).</summary>
+            public void PathToNode9()
+            {
+                this.PathToNode8();
+                this.AddSelectModule(13100, "ModuleB");
+                // End open heartbeats before N9 closure window (18100+) to avoid OT clobber.
+                this.AddDoorHeartbeat(13000, 18000, 500, open: true);
+                this.AddModuleStatusHeartbeat(13000, 18000, 500);
+            }
+
+            public void AddModuleSuccess(int offsetMs)
+            {
+                // Per-participant first-unseen id (session-global seen-set shared by M1/M2).
+                int moduleId = ((int)this.participant * 1000) + 1;
+                this.AddModuleStatus(offsetMs, moduleId, "success");
+            }
+
+            public void AddModuleStatusHeartbeat(int startMs, int endMs, int stepMs)
+            {
+                for (int t = startMs; t <= endMs; t += stepMs)
+                {
+                    this.AddModuleStatus(t, SeedModuleStatusId, "idle");
+                }
+            }
+
+            public void AddDoorHeartbeat(int startMs, int endMs, int stepMs, bool open)
+            {
+                for (int t = startMs; t <= endMs; t += stepMs)
+                {
+                    this.AddDoor(PortRoleIds.GeneratorDoor1, t, open, Door1Pose);
+                    this.AddDoor(PortRoleIds.GeneratorDoor2, t, open, Door2Pose);
+                }
+            }
+
+            public void AddGeneratorAreaExit(int offsetMs)
+            {
+                // Player exit level: id==-1, state==false, info==GeneratorArea (both zones for M1/M2 pairing).
+                DateTime ot = this.At(offsetMs);
+                Upsert(this.zone1, ((-1, false, "GeneratorArea"), ot));
+                Upsert(this.zone2, ((-1, false, "GeneratorArea"), ot));
             }
 
             public void AddSelectModule(int offsetMs, string value)

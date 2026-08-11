@@ -1,63 +1,67 @@
-# Logigramme 1 known-trace scenarios (Story 2.4)
+# Logigramme 1 known-trace scenarios (Story 2.4 — Option C)
 
-Host-owned catalog-typed inject schedules for Miro nodes N1–N8 plus a full-tree proof run.
+Host-owned catalog-typed inject schedules for **Logigramme1.md nodes 1–9** (Option C wire labels).
 Same `knownTraceScenario` id is applied independently to M1 and M2 (AD-3).
-Labels: Alpha / Beta / Gamma only — no speech / VisualFeedback / Apprentissage.
+Labels: **Alpha / Beta / Gamma** only — never Apprentissage / N/A / scores.
 
-Priority mux (must silence competitors on hits): AnticipationΓ → GazeΓ → Alpha → Beta → DoorElseΓ.
+Authority: `Ressources/Logigramme1.md` + Option C (C→Gamma, E→Gamma, D→no Classification row).
+Miro Anticipation / DoorElse / Select-only Beta catalogues are **retired**.
 
-## Primary proof run: `full-tree-coverage`
+## Option C emit table
 
-One Replay inject timeline sequences **all** Miro branch polarities (hits and mid-timeline misses) so a single run’s Classification CSV must contain **Alpha, Beta, and Gamma**.
-
-| Offset (ms) | Segment | Effect |
+| Node | Hit | Miss |
 | --- | --- | --- |
-| 0–1 | Seed neutrals | ModuleA, Validation false @1, doors OPEN, wrist far, idle |
-| 100–200 | Anticipation hit | Wrist near + ModuleStatus success → AnticipationΓ |
-| 400–800 | Anticipation miss | Wrist far + success → no AnticipationΓ from that path; idle again |
-| 900–1450 | Indicator + Gaze hit | Indicator dwell → porte dwell → door CLOSE → GazeΓ |
-| 1700 | Reset | Doors OPEN, gaze clear |
-| 1900–2200 | Gaze miss | Porte dwell, doors stay OPEN → no GazeΓ; gaze clear |
-| 2400–2900 | Alpha hit | ModuleA + Validation×3 rising edges → Alpha |
-| 3100 | Beta hit | SelectModule ModuleB → Beta |
-| 3600–3800 | DoorElseΓ | Door CLOSE (no gaze/success/hand) → DoorElseΓ; doors reopen |
+| 1 | Arms node-2 path (no label alone) | Timeout → node 4 |
+| 2 | DoorClosed ∧ (Select change \| Validation) → node 1 | Door open / window → node 3 |
+| 3 | **Gamma** (C) via DoorClosed ∧ GeneratorArea exit | Timeout → node 1 |
+| 4 | Gaze dwell → node 6 | Window → node 5 |
+| 5 | **D silence** (no Classification row) | Door open → node 7 |
+| 6 | **Gamma** (E→Γ) when DoorClosed | Door open → node 7 |
+| 7 | **Alpha** (Validation×3 inside entry window) | Window → node 8 |
+| 8 | **Beta** (different Select **then** Validation contiguous) | Window → node 9 |
+| 9 | **D silence** (DoorClosure open→closed) | Timeout → node 4 |
 
-- **ExpectedLabels:** Alpha, Beta, Gamma (all must appear)
-- **ForbiddenLabels:** empty (misses are mid-timeline; later hits emit labels)
-- **MiroNode:** `ALL`
-- **ScheduleSpanMs:** 5000 (covers max offset ~3800)
+## Pathing notes
 
-**Alpha miss** is *not* sequenced mid-timeline: Alpha’s Core 5 s lookback would still see the hit edges after the Alpha segment. Use dedicated `N6-miss-alpha` for the single-rising-edge miss polarity.
+- Reach **4** via node-1 miss (5 s timeout). Heartbeats keep miss clocks advancing.
+- Reach **3** via 1-hit → door-open immediate 2-miss.
+- Reach **7** via 1-miss → 4-miss → 5 with door open.
+- Reach **8/9** via 7-miss / 8-miss (5 s sequence windows).
+- **HandNear** stays fail-closed (no door world pose) — node-3 hits use **DoorClosed ∧ GeneratorArea exit** (`id==-1`, `state==false`, `info=="GeneratorArea"`).
+- Seed `ModuleStatus` id `0` is pre-registered after session reset so neutrals do not arm node-1 hits; intentional successes use per-participant module ids.
+- **ScheduleSpanMs:** 25000 (covers deepest 1→4→5→7→8→9 path).
 
-Mid-timeline misses prove **no-emit** for that path only (Anticipation miss, Gaze miss). They do not forbid later Alpha/Beta/Gamma from other branches.
+## Per-node scenarios (1–9)
 
-## Per-node scenarios (N1–N8)
-
-| ScenarioId | MiroNode | Polarity | Participant | CatalogTimeline | ExpectedLabels | ForbiddenLabels | Notes |
+| ScenarioId | Node | Polarity | Participant | Timeline | ExpectedLabels | ForbiddenLabels | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| N1-hit-success | N1 ModuleGenerationSuccess | hit | Both (M1+M2) | ModuleStatus success + LeftWrist near door pose; doors OPEN; no SelectModule change; no Validation×3; no gaze dwell | Gamma | | Anticipation path (also exercises N2). Dual-user hit for M1 and M2. |
-| N1-miss-success | N1 ModuleGenerationSuccess | miss | Both | ModuleStatus failure + hand near; doors OPEN; no gaze / alpha / beta | | Gamma | Success absent → no AnticipationΓ. |
-| N2-hit-handnear | N2 HandNearDoor | hit | Both | Same as N1-hit-success (success ∧ hand-near lookback) | Gamma | | AnticipationΓ. |
-| N2-miss-handnear | N2 HandNearDoor | miss | Both | ModuleStatus success + wrist far from doors; doors OPEN | | Gamma | Success without hand-near → no AnticipationΓ. |
-| N3-hit-indicator | N3 GazeOnDoorClosedIndicator | hit | Both | Indicator ObjectType dwell 150–250 ms, then door ObjectType dwell + door CLOSE within join; no success/hand/alpha/beta | Gamma | | Indicator keep-observed then GazeΓ path. GazeEvent.UserId = participant. |
-| N3-miss-indicator | N3 GazeOnDoorClosedIndicator | miss | Both | Non-matching / non-dwelling gaze only; doors OPEN; neutrals | | Gamma | Indicator dwell not satisfied; no classification leaf armed. |
-| N4-hit-gaze-door | N4 GazeOnDoor | hit | Both | Door ObjectType dwell + door CLOSE near dwell end (same mux tick beats DoorElse); no success/hand/alpha/beta | Gamma | | GazeΓ. |
-| N4-miss-gaze-door | N4 GazeOnDoor | miss | Both | Door ObjectType dwell; doors stay OPEN | | Gamma | Gaze without DoorClosed → no GazeΓ / DoorElseΓ. |
-| N5-hit-door-closed-gaze | N5 DoorClosed (gaze paths) | hit | Both | Same pattern as N4-hit-gaze-door | Gamma | | DoorClosed ∧ GazeOnDoor → GazeΓ. |
-| N5-miss-door-closed-gaze | N5 DoorClosed (gaze paths) | miss | Both | Door ObjectType dwell; doors stay OPEN | | Gamma | No DoorClosed → fall through. |
-| N6-hit-alpha | N6 RepeatedValidationSequence | hit | Both | SelectModule seed once; ≥3 Validation rising edges within 5 s; doors OPEN; no success/hand; no SelectModule change; no gaze | Alpha | Gamma, Beta | Competitors silenced. |
-| N6-miss-alpha | N6 RepeatedValidationSequence | miss | Both | SelectModule seed; only 1 Validation rising edge; doors OPEN | | Alpha | Below Alpha threshold. |
-| N7-hit-beta | N7 DifferentGeneratorButton | hit | Both | SelectModule A then B; doors OPEN; no success/hand; no Validation×3; no gaze | Beta | Alpha, Gamma | |
-| N7-miss-beta | N7 DifferentGeneratorButton | miss | Both | Single SelectModule seed only; doors OPEN | | Beta | First seed is not a change. |
-| N8-hit-door-else-gamma | N8 Final DoorClosed | hit | Both | Doors OPEN then CLOSE rising edge; no success/hand; no gaze; no alpha/beta | Gamma | Alpha, Beta | DoorElseΓ only. |
-| N8-miss-door-else | N8 Final DoorClosed | miss | Both | Doors stay OPEN; neutrals | | Gamma | No DoorElseΓ / no substitute Apprentissage. |
+| N1-hit-success | 1 | hit | Both | Doors CLOSED; first-unseen ModuleStatus; no exit / gaze / αβ | | Alpha, Beta, Gamma | Structural: arms node 2 (closed door). |
+| N1-miss-timeout | 1 | miss | Both | Heartbeat already-seen ModuleStatus past 5 s miss timeout; no new module id | | Alpha, Beta, Gamma | Branches toward 4. |
+| N2-hit-post-door | 2 | hit | Both | Doors CLOSED before success; ModuleStatus hit → 2; SelectModule A→B while closed | | Alpha, Beta, Gamma | Structural loop toward 1; no emit. |
+| N2-miss-door-open | 2 | miss | Both | ModuleStatus hit with doors OPEN → immediate 2→3 | | Alpha, Beta, Gamma | Competing C not armed (no GeneratorArea exit). |
+| N3-hit-c-gamma | 3 | hit | Both | Open-door cascade to 3; then DoorClosed ∧ GeneratorArea player exit on both zones | Gamma | Alpha, Beta | C→Gamma. HandNear not used. |
+| N3-miss-c | 3 | miss | Both | Cascade to 3; doors stay OPEN; no GeneratorArea exit; wait node-3 timeout | | Alpha, Beta, Gamma | No C. |
+| N4-hit-gaze | 4 | hit | Both | Node-1 miss → 4; porte dwell 150–250 ms → 6 (door open → 6 miss to 7) | | Alpha, Beta, Gamma | Structural arming only. |
+| N4-miss-gaze | 4 | miss | Both | Node-1 miss → 4; no matching dwell; wait 3 s combine window → 5 | | Alpha, Beta, Gamma | |
+| N5-hit-d-silence | 5 | hit | Both | 1-miss → 4; close doors while on 4; 4-miss → 5 with DoorClosed → D | | Alpha, Beta, Gamma | `AssertNoClassificationRows`; hard zero-row gate. |
+| N5-miss-d | 5 | miss | Both | 1-miss → 4-miss → 5; doors stay OPEN through ~12 s → 7 | | Alpha, Beta, Gamma | Soft miss (timeline longer than N4-miss). |
+| N6-hit-e-gamma | 6 | hit | Both | 1-miss → 4; close doors; porte dwell → 6 with DoorClosed → E | Gamma | Alpha, Beta | E→Gamma (never Apprentissage). |
+| N6-miss-e | 6 | miss | Both | 1-miss → 4; porte dwell with doors OPEN → 6 → 7 | | Alpha, Beta, Gamma | |
+| N7-hit-alpha | 7 | hit | Both | Path to 7 via 5-open; Validation false then ×3 rising inside 5 s (Reset-safe) | Alpha | Beta, Gamma | |
+| N7-miss-alpha | 7 | miss | Both | Path to 7; single Validation rising edge; wait sequence window → 8 | | Alpha, Beta, Gamma | |
+| N8-hit-beta | 8 | hit | Both | Path to 8 via 7-miss; Select A→B; Validation false then rising (Reset-safe) | Beta | Alpha, Gamma | Not Select-only. |
+| N8-miss-beta | 8 | miss | Both | Path to 8; Select B only (no Validation); wait → 9 | | Alpha, Beta, Gamma | Select-only must not emit. |
+| N9-hit-d-silence | 9 | hit | Both | Path to 9; single DoorClosure open→closed (no 18500 open clobber) → D | | Alpha, Beta, Gamma | `AssertNoClassificationRows`. |
+| N9-miss-d | 9 | miss | Both | Path to 9; doors stay OPEN; wait node-9 timeout → 4 | | Alpha, Beta, Gamma | Soft miss. |
 
 ## Dual-user
 
-Every scenario above is wired for **both** M1 and M2 with independent inject producer instances (`GazeEvent.UserId` matches the branch). `full-tree-coverage` (or any documented hit) therefore covers M1 and M2 simultaneously.
+Every scenario is wired for **both** M1 and M2 with independent inject producer instances (`GazeEvent.UserId` matches the branch; zone/door parents pair M1↔1 / M2↔2). No shared mutable scenario state.
 
 ## Config
 
-Optional run-config key: `"knownTraceScenario": "full-tree-coverage"` with `"graphs": ["Logigramme1"]`.
+Optional run-config key: `"knownTraceScenario": "N3-hit-c-gamma"` with `"graphs": ["Logigramme1"]`.
 Absence of the key ⇒ catalog bind (Story 2.5).
 Unknown id ⇒ fail closed before run.
+
+D-silence ids (`N5-hit-d-silence`, `N9-hit-d-silence`) set `AssertNoClassificationRows=true` so export fails if any Classification data row appears. Catalog mode and ordinary misses keep soft `ExpectClassificationRows=false` (no zero-row assert).

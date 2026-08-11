@@ -41,6 +41,10 @@ namespace SaacAnalysisCasper.Replay.Services
         /// <param name="forbiddenClassificationLabels">
         /// Labels that must not appear in Classification CSV rows (hits and misses); null/empty means none.
         /// </param>
+        /// <param name="assertNoClassificationRows">
+        /// When true and <paramref name="classificationOut"/> is non-null, D-hit silence scenarios fail if any
+        /// Classification CSV data row appears. Catalog / ordinary misses stay soft (false).
+        /// </param>
         public BoundBranchDescriptor(
             string graphId,
             ParticipantId participant,
@@ -50,7 +54,8 @@ namespace SaacAnalysisCasper.Replay.Services
             IProducer<ClassificationEvent>? classificationOut = null,
             bool expectClassificationRows = false,
             IReadOnlyList<ClassificationLabel>? expectedClassificationLabels = null,
-            ClassificationLabel[]? forbiddenClassificationLabels = null)
+            ClassificationLabel[]? forbiddenClassificationLabels = null,
+            bool assertNoClassificationRows = false)
         {
             if (string.IsNullOrWhiteSpace(graphId))
             {
@@ -64,6 +69,13 @@ namespace SaacAnalysisCasper.Replay.Services
                     + "provide CoincidenceOut (Poc) and/or ClassificationOut (Logigramme1).");
             }
 
+            if (expectClassificationRows && assertNoClassificationRows)
+            {
+                throw new ArgumentException(
+                    "ExpectClassificationRows and AssertNoClassificationRows cannot both be true.",
+                    nameof(assertNoClassificationRows));
+            }
+
             this.GraphId = graphId;
             this.Participant = participant;
             this.WindowMs = windowMs;
@@ -71,6 +83,7 @@ namespace SaacAnalysisCasper.Replay.Services
             this.ClassificationOut = classificationOut;
             this.ExpectCoincidenceRows = coincidenceOut != null && expectCoincidenceRows;
             this.ExpectClassificationRows = classificationOut != null && expectClassificationRows;
+            this.AssertNoClassificationRows = classificationOut != null && assertNoClassificationRows;
             this.ExpectedClassificationLabels = expectedClassificationLabels ?? EmptyClassificationLabels;
             this.ForbiddenClassificationLabels = forbiddenClassificationLabels ?? EmptyClassificationLabels;
         }
@@ -111,6 +124,12 @@ namespace SaacAnalysisCasper.Replay.Services
         /// (documented known-trace hits). Always false when <see cref="ClassificationOut"/> is null.
         /// </summary>
         public bool ExpectClassificationRows { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether this branch's Classification CSV must stay header-only
+        /// (D-hit silence known-trace). Always false when <see cref="ClassificationOut"/> is null.
+        /// </summary>
+        public bool AssertNoClassificationRows { get; }
 
         /// <summary>
         /// Gets expected Classification labels for known-trace hits (every label must appear); empty when none.

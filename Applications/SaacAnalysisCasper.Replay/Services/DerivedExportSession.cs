@@ -34,6 +34,7 @@ namespace SaacAnalysisCasper.Replay.Services
         private readonly List<StreamWriter?> streamWriters;
         private readonly Dictionary<string, int> rowsByCsvPath;
         private readonly Dictionary<string, bool> requireRowsByCsvPath;
+        private readonly Dictionary<string, bool> assertNoRowsByCsvPath;
         private readonly Dictionary<string, bool> coincidenceCsvByPath;
         private readonly Dictionary<string, HashSet<ClassificationLabel>> labelsByCsvPath;
         private readonly Dictionary<string, ClassificationLabel[]> expectedLabelsByCsvPath;
@@ -56,6 +57,7 @@ namespace SaacAnalysisCasper.Replay.Services
             this.streamWriters = new List<StreamWriter?>();
             this.rowsByCsvPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             this.requireRowsByCsvPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            this.assertNoRowsByCsvPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             this.coincidenceCsvByPath = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             this.labelsByCsvPath = new Dictionary<string, HashSet<ClassificationLabel>>(StringComparer.OrdinalIgnoreCase);
             this.expectedLabelsByCsvPath = new Dictionary<string, ClassificationLabel[]>(StringComparer.OrdinalIgnoreCase);
@@ -375,6 +377,7 @@ namespace SaacAnalysisCasper.Replay.Services
             this.csvPaths.Add(csvPath);
             this.rowsByCsvPath[csvPath] = 0;
             this.requireRowsByCsvPath[csvPath] = branch.ExpectClassificationRows;
+            this.assertNoRowsByCsvPath[csvPath] = branch.AssertNoClassificationRows;
             this.coincidenceCsvByPath[csvPath] = false;
             this.labelsByCsvPath[csvPath] = new HashSet<ClassificationLabel>();
             ClassificationLabel[] expected = new ClassificationLabel[branch.ExpectedClassificationLabels.Count];
@@ -429,6 +432,7 @@ namespace SaacAnalysisCasper.Replay.Services
                 + " dataset=" + datasetIdentity
                 + " graph=" + branch.GraphId
                 + " expectRows=" + branch.ExpectClassificationRows
+                + " assertNoRows=" + branch.AssertNoClassificationRows
                 + " path=" + csvPath);
         }
 
@@ -436,7 +440,9 @@ namespace SaacAnalysisCasper.Replay.Services
         /// Ensures CSV science gates for inject / known-trace schedules.
         /// Coincidence: matching-W branches require ≥1 C row; non-matching must stay at 0.
         /// Classification: documented known-trace hits (<see cref="BoundBranchDescriptor.ExpectClassificationRows"/>)
-        /// require ≥1 row (fail-closed on zero); expected/forbidden labels gated when configured.
+        /// require ≥1 row (fail-closed on zero); D-hit silence
+        /// (<see cref="BoundBranchDescriptor.AssertNoClassificationRows"/>) fails if any row appears;
+        /// expected/forbidden labels gated when configured. Catalog mode stays soft (no zero-row assert).
         /// </summary>
         public void EnsureExportRowsPresent()
         {
@@ -464,6 +470,12 @@ namespace SaacAnalysisCasper.Replay.Services
                     if (!this.requireRowsByCsvPath.TryGetValue(path, out requireRows))
                     {
                         requireRows = true;
+                    }
+
+                    bool assertNoRows;
+                    if (!this.assertNoRowsByCsvPath.TryGetValue(path, out assertNoRows))
+                    {
+                        assertNoRows = false;
                     }
 
                     bool isCoincidence;
@@ -510,6 +522,14 @@ namespace SaacAnalysisCasper.Replay.Services
                                 "Export produced no Classification rows for CSV '" + path
                                 + "' on a documented known-trace hit (ExpectClassificationRows=true). "
                                 + "Fail-closed: hit scenarios must emit ≥1 Alpha/Beta/Gamma row.");
+                        }
+
+                        if (assertNoRows && rows > 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Export produced Classification rows for CSV '" + path
+                                + "' on a documented D-silence known-trace (AssertNoClassificationRows=true). "
+                                + "Fail-closed: D-hit scenarios must stay header-only (0 data rows).");
                         }
 
                         ClassificationLabel[] expectedLabels;
