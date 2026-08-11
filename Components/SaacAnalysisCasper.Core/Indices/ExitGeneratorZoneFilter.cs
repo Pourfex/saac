@@ -9,23 +9,29 @@ namespace SaacAnalysisCasper.Core.Indices
     using Microsoft.Psi.Components;
 
     /// <summary>
-    /// Derives generator-zone exit pulses from <c>AreaN</c> (<c>ValueTuple&lt;int,bool,string&gt;</c>).
+    /// Derives generator-zone exit evidence from <c>AreaN</c> (<c>ValueTuple&lt;int,bool,string&gt;</c>).
     /// </summary>
     /// <remarks>
-    /// Edge assumption: <see cref="IndexFilterAssumptions.ExitGeneratorZoneEdge"/>.
-    /// Per-zone selector — call once per zone parent. Messages with <c>Item1 != zoneIndex</c> are ignored.
+    /// <see cref="IndexFilterAssumptions.ExitGeneratorZoneEdge"/>:
+    /// <c>info=="GeneratorArea"</c> + player <c>id==-1</c>; exit = falling edge (true→false) <strong>or</strong>
+    /// level (<c>state==false</c>). Other Area <c>info</c> values do not post (hold last GeneratorArea evidence).
+    /// Zone parent is selected by M1↔Area1 / M2↔Area2 pairing — <c>Item1</c> is entity id, not zone index.
     /// </remarks>
     public static class ExitGeneratorZoneFilter
     {
+        private const string GeneratorAreaInfo = "GeneratorArea";
+
+        private const int PlayerEntityId = -1;
+
         /// <summary>
-        /// Emits <c>true</c> on falling edge of the zone occupancy bool (exit).
+        /// Emits <c>true</c> when GeneratorArea player exit evidence is present (edge or level).
         /// </summary>
         /// <param name="pipeline">Owning pipeline (for stateful edge detector).</param>
-        /// <param name="zoneStream">Catalog zone stream for one area.</param>
-        /// <param name="zoneIndex">1-based zone index; messages with other Item1 are ignored.</param>
+        /// <param name="zoneStream">Catalog zone stream for the paired area (Area1 or Area2).</param>
+        /// <param name="zoneIndex">1-based zone index (documentation / naming only).</param>
         /// <param name="deliveryPolicy">Optional delivery policy.</param>
         /// <param name="name">Optional operator name.</param>
-        /// <returns>Stream that pulses true on exit edges.</returns>
+        /// <returns>Stream that is true on GeneratorArea player exit evidence.</returns>
         public static IProducer<bool> Apply(
             Pipeline pipeline,
             IProducer<ValueTuple<int, bool, string>> zoneStream,
@@ -52,34 +58,35 @@ namespace SaacAnalysisCasper.Core.Indices
                 ? nameof(ExitGeneratorZoneFilter) + "-Z" + zoneIndex
                 : name;
 
-            FallingEdgeDetector detector = new FallingEdgeDetector(pipeline, operatorName, zoneIndex);
+            ExitEvidenceDetector detector = new ExitEvidenceDetector(pipeline, operatorName);
             zoneStream.PipeTo(detector.In, deliveryPolicy ?? DeliveryPolicy.Unlimited);
             return detector.Out;
         }
 
-        private sealed class FallingEdgeDetector : ConsumerProducer<ValueTuple<int, bool, string>, bool>
+        private sealed class ExitEvidenceDetector : ConsumerProducer<ValueTuple<int, bool, string>, bool>
         {
-            private readonly int zoneIndex;
-            private bool? previousInZone;
+            private bool? previousPlayerInZone;
 
-            public FallingEdgeDetector(Pipeline pipeline, string name, int zoneIndex)
+            public ExitEvidenceDetector(Pipeline pipeline, string name)
                 : base(pipeline, name)
             {
-                this.zoneIndex = zoneIndex;
             }
 
             /// <inheritdoc/>
             protected override void Receive(ValueTuple<int, bool, string> data, Envelope envelope)
             {
-                if (data.Item1 != this.zoneIndex)
+                // Hold last GeneratorArea player evidence — do not false-pulse other Area infos or module ids.
+                if (!string.Equals(data.Item3, GeneratorAreaInfo, StringComparison.Ordinal)
+                    || data.Item1 != PlayerEntityId)
                 {
                     return;
                 }
 
                 bool inZone = data.Item2;
-                bool exited = this.previousInZone.HasValue && this.previousInZone.Value && !inZone;
-                this.previousInZone = inZone;
-                this.Out.Post(exited, envelope.OriginatingTime);
+                bool edgeExit = this.previousPlayerInZone.HasValue && this.previousPlayerInZone.Value && !inZone;
+                bool levelExit = !inZone;
+                this.previousPlayerInZone = inZone;
+                this.Out.Post(edgeExit || levelExit, envelope.OriginatingTime);
             }
         }
     }

@@ -17,7 +17,8 @@ namespace SaacAnalysisCasper.Core.Graphs
     /// <summary>
     /// Thin <see cref="IBindableComposition"/> adapter for Logigramme 1.
     /// Hosts bind catalog <see cref="Logigramme1PortRequirements.Logigramme1RequiredRoles"/> only;
-    /// derived roles are produced inside Core.
+    /// derived roles are produced inside Core. Generator pairing (M1→Door1+Zone1, M2→Door2+Zone2)
+    /// is applied inside <see cref="Logigramme1Operator"/>.
     /// </summary>
     /// <remarks>
     /// Wiring is deferred until <see cref="ClassificationOut"/> is first accessed so optional

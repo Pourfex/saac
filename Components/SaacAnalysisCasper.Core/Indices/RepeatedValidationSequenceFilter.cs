@@ -5,22 +5,38 @@
 namespace SaacAnalysisCasper.Core.Indices
 {
     using System;
+    using System.Collections.Generic;
     using Microsoft.Psi;
-    using Microsoft.Psi.Components;
 
     /// <summary>
-    /// Alpha-path derived filter: repeated validation sequence from SelectModule + Validation (speech omitted).
+    /// Node 7 (Alpha): Validation×3 <strong>or</strong> (SelectModule→Validation)×3 counted inside
+    /// the 5 s window starting at node entry (call <see cref="Component.Reset"/> on entry).
+    /// Same-value Select republishes do not inflate Select→Val pairs.
     /// </summary>
-    /// <remarks>
-    /// Counts false→true Validation edges (not sustained true samples).
-    /// On SelectModule change, resets accumulation so counts do not cross modules.
-    /// Threshold: ≥ <see cref="IndexFilterAssumptions.AlphaValidationCountThreshold"/> edges
-    /// inside <see cref="IndexFilterAssumptions.AlphaValidationWindowMs"/>.
-    /// </remarks>
     public static class RepeatedValidationSequenceFilter
     {
         /// <summary>
-        /// Emits true when the validation-edge count threshold is met inside the aggregation window.
+        /// Creates a resettable Alpha-path counter component.
+        /// </summary>
+        /// <param name="pipeline">Owning pipeline.</param>
+        /// <param name="name">Optional operator name.</param>
+        /// <returns>Component with Select/Validation inputs, Out, and synchronous Reset.</returns>
+        public static Component Create(Pipeline pipeline, string? name = null)
+        {
+            if (pipeline == null)
+            {
+                throw new ArgumentNullException(nameof(pipeline));
+            }
+
+            string operatorName = string.IsNullOrWhiteSpace(name)
+                ? nameof(RepeatedValidationSequenceFilter)
+                : name;
+
+            return new Component(pipeline, operatorName);
+        }
+
+        /// <summary>
+        /// Emits true when either Alpha arm meets the count threshold inside the aggregation window.
         /// </summary>
         /// <param name="pipeline">Owning pipeline.</param>
         /// <param name="selectModule">Catalog SelectModule stream.</param>
@@ -35,11 +51,7 @@ namespace SaacAnalysisCasper.Core.Indices
             DeliveryPolicy? deliveryPolicy = null,
             string? name = null)
         {
-            if (pipeline == null)
-            {
-                throw new ArgumentNullException(nameof(pipeline));
-            }
-
+            Component component = Create(pipeline, name);
             if (selectModule == null)
             {
                 throw new ArgumentNullException(nameof(selectModule));
@@ -50,88 +62,147 @@ namespace SaacAnalysisCasper.Core.Indices
                 throw new ArgumentNullException(nameof(validation));
             }
 
-            string operatorName = string.IsNullOrWhiteSpace(name)
-                ? nameof(RepeatedValidationSequenceFilter)
-                : name;
-
-            ValidationSequenceCounter counter = new ValidationSequenceCounter(pipeline, operatorName);
-            selectModule.PipeTo(counter.SelectModuleIn, DeliveryPolicy.Unlimited);
-            validation.PipeTo(counter.ValidationIn, deliveryPolicy ?? DeliveryPolicy.Unlimited);
-            return counter.Out;
+            selectModule.PipeTo(component.SelectModuleIn, DeliveryPolicy.Unlimited);
+            validation.PipeTo(component.ValidationIn, deliveryPolicy ?? DeliveryPolicy.Unlimited);
+            return component.Out;
         }
 
-        private sealed class ValidationSequenceCounter
+        /// <summary>
+        /// Resettable Validation×3 / (Select→Val)×3 counter.
+        /// </summary>
+        public sealed class Component
         {
             private readonly Emitter<bool> output;
             private readonly int threshold;
             private readonly TimeSpan window;
-            private readonly System.Collections.Generic.List<DateTime> edgeTimes;
-            private string? currentModule;
+            private readonly List<DateTime> validationEdgeTimes;
+            private readonly List<DateTime> selectThenValPairTimes;
+            private string? lastSelectValue;
+            private bool awaitingValidationAfterSelect;
             private bool previousValidation;
             private DateTime lastEmittedOt = DateTime.MinValue;
             private bool lastEmittedValue;
+            private DateTime? windowOrigin;
 
-            public ValidationSequenceCounter(Pipeline pipeline, string name)
+            internal Component(Pipeline pipeline, string name)
             {
                 this.threshold = IndexFilterAssumptions.AlphaValidationCountThreshold;
-                this.window = TimeSpan.FromMilliseconds(IndexFilterAssumptions.AlphaValidationWindowMs);
-                this.edgeTimes = new System.Collections.Generic.List<DateTime>();
+                this.window = TimeSpan.FromMilliseconds(IndexFilterAssumptions.SequenceWindowMs);
+                this.validationEdgeTimes = new List<DateTime>();
+                this.selectThenValPairTimes = new List<DateTime>();
                 this.output = pipeline.CreateEmitter<bool>(this, name + "-Out");
                 this.SelectModuleIn = pipeline.CreateReceiver<string>(this, this.ReceiveSelectModule, name + "-SelectIn");
                 this.ValidationIn = pipeline.CreateReceiver<bool>(this, this.ReceiveValidation, name + "-ValIn");
             }
 
+            /// <summary>SelectModule input.</summary>
             public Receiver<string> SelectModuleIn { get; }
 
+            /// <summary>Validation input.</summary>
             public Receiver<bool> ValidationIn { get; }
 
+            /// <summary>Met-level output.</summary>
             public Emitter<bool> Out => this.output;
+
+            /// <summary>
+            /// Clears counters/pending and starts a fresh node-entry 5 s window.
+            /// </summary>
+            public void Reset(DateTime originatingTime)
+            {
+                this.validationEdgeTimes.Clear();
+                this.selectThenValPairTimes.Clear();
+                this.awaitingValidationAfterSelect = false;
+                this.lastSelectValue = null;
+                // Suppress spurious rising from a Validation already held true at node entry.
+                this.previousValidation = true;
+                this.windowOrigin = originatingTime;
+                this.Emit(false, originatingTime);
+            }
 
             private void ReceiveSelectModule(string module, Envelope envelope)
             {
-                if (!string.Equals(this.currentModule, module, StringComparison.Ordinal))
+                if (!this.IsInsideWindow(envelope.OriginatingTime))
                 {
-                    this.currentModule = module;
-                    this.edgeTimes.Clear();
-                    this.previousValidation = false;
                     this.Emit(false, envelope.OriginatingTime);
+                    return;
                 }
+
+                if (string.IsNullOrEmpty(module))
+                {
+                    this.awaitingValidationAfterSelect = false;
+                    this.lastSelectValue = null;
+                    this.Emit(this.IsMet(envelope.OriginatingTime), envelope.OriginatingTime);
+                    return;
+                }
+
+                // Same-value republish: do not re-arm / inflate Select→Val pairs.
+                bool isNewSelect = this.lastSelectValue == null
+                    || !string.Equals(this.lastSelectValue, module, StringComparison.Ordinal);
+                this.lastSelectValue = module;
+
+                if (isNewSelect)
+                {
+                    this.awaitingValidationAfterSelect = true;
+                }
+
+                this.Emit(this.IsMet(envelope.OriginatingTime), envelope.OriginatingTime);
             }
 
             private void ReceiveValidation(bool pressed, Envelope envelope)
             {
+                if (!this.IsInsideWindow(envelope.OriginatingTime))
+                {
+                    bool risingOutside = pressed && !this.previousValidation;
+                    this.previousValidation = pressed;
+                    if (risingOutside)
+                    {
+                        // Ignore edges outside the node-entry window.
+                    }
+
+                    this.Emit(false, envelope.OriginatingTime);
+                    return;
+                }
+
                 bool rising = pressed && !this.previousValidation;
                 this.previousValidation = pressed;
 
                 if (rising)
                 {
-                    this.edgeTimes.Add(envelope.OriginatingTime);
-                }
+                    this.validationEdgeTimes.Add(envelope.OriginatingTime);
 
-                DateTime cutoff = envelope.OriginatingTime - this.window;
-                int write = 0;
-                for (int i = 0; i < this.edgeTimes.Count; i++)
-                {
-                    if (this.edgeTimes[i] >= cutoff)
+                    if (this.awaitingValidationAfterSelect)
                     {
-                        this.edgeTimes[write++] = this.edgeTimes[i];
+                        this.selectThenValPairTimes.Add(envelope.OriginatingTime);
+                        this.awaitingValidationAfterSelect = false;
                     }
                 }
 
-                if (write < this.edgeTimes.Count)
-                {
-                    this.edgeTimes.RemoveRange(write, this.edgeTimes.Count - write);
-                }
-
-                bool met = this.edgeTimes.Count >= this.threshold;
-                this.Emit(met, envelope.OriginatingTime);
+                this.Emit(this.IsMet(envelope.OriginatingTime), envelope.OriginatingTime);
             }
 
-            /// <summary>
-            /// Posts with Psi strictly-increasing OT. SelectModule and Validation often share OT on
-            /// inject/catalog ticks; coalesce same-value collisions and nudge one tick only when the
-            /// emitted bool must change at that shared OT.
-            /// </summary>
+            private bool IsInsideWindow(DateTime originatingTime)
+            {
+                if (!this.windowOrigin.HasValue)
+                {
+                    // Not yet armed by node entry — ignore (session-long arming forbidden).
+                    return false;
+                }
+
+                TimeSpan elapsed = originatingTime - this.windowOrigin.Value;
+                return elapsed >= TimeSpan.Zero && elapsed <= this.window;
+            }
+
+            private bool IsMet(DateTime originatingTime)
+            {
+                if (!this.IsInsideWindow(originatingTime))
+                {
+                    return false;
+                }
+
+                return this.validationEdgeTimes.Count >= this.threshold
+                    || this.selectThenValPairTimes.Count >= this.threshold;
+            }
+
             private void Emit(bool value, DateTime originatingTime)
             {
                 DateTime emitOt = originatingTime;

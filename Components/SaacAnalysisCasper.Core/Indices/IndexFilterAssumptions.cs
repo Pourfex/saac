@@ -5,54 +5,53 @@
 namespace SaacAnalysisCasper.Core.Indices
 {
     /// <summary>
-    /// Documented assumptions for Story 2.3 derived-input filters (confirm with Alexis if polarity/heuristics prove wrong on PreTest).
+    /// Documented assumptions for Story 2.3 derived-input filters
+    /// (<c>Logigramme1.md</c> + Option C). Confirm with Alexis if polarity/heuristics prove wrong on PreTest.
     /// </summary>
     public static class IndexFilterAssumptions
     {
         /// <summary>
         /// Door stream <c>ValueTuple&lt;bool, Vector3&gt;.Item1</c> polarity:
-        /// topic name is <c>PorteN ouverture</c>; prior-art CASPERAnalysis treats <c>Item1 == true</c> as open/opening,
-        /// so <strong>closed</strong> = <c>Item1 == false</c>.
+        /// topic name is <c>PorteN ouverture</c>; <strong>closed</strong> = <c>Item1 == false</c>.
         /// </summary>
         public const string DoorClosedPolarity =
-            "PorteN ouverture Item1==true means OPEN; DoorClosed emits when Item1==false (prior-art MainWindow).";
+            "PorteN ouverture Item1==true means OPEN; DoorClosed emits when Item1==false.";
 
         /// <summary>
-        /// Hand-near-door distance threshold in meters (prior-art HandDoorProximityDetector default).
-        /// Door pose parent = door stream <c>Item2</c> Vector3 position.
+        /// Hand-near-door distance threshold in meters (<c>Logigramme1.md</c> node 3).
+        /// Door world pose/bounds are not in catalog today — hand arm fail-closes until a pose parent is confirmed.
         /// </summary>
-        public const float HandNearDoorDistanceMeters = 0.15f;
+        public const float HandNearDoorDistanceMeters = 1.0f;
 
         /// <summary>
-        /// Bounded Join tolerance for wrist↔door pose fusion (±ms). Not Infinite.
+        /// Bounded Join tolerance for wrist↔door pose fusion (±ms) when a door world-pose parent exists.
         /// </summary>
         public const int HandNearDoorJoinToleranceMs = 1500;
 
         /// <summary>
-        /// Sticky-OR window when combining dual door / dual wrist bools (ms).
+        /// Sticky-OR window when combining dual wrist bools (ms).
         /// </summary>
         public const int StickyOrWindowMs = 250;
 
         /// <summary>
-        /// ModuleGenerationSuccess: <c>Item1 == 1</c> OR status string contains success markers (prior-art MainWindow).
-        /// UTF-8 source uses "réuss"; ASCII "reuss" kept as fallback.
+        /// ModuleGenerationSuccess: first-unseen ModuleStatus <c>Item1</c> id (session-global seen-set).
         /// </summary>
         public const string ModuleGenerationSuccessHeuristic =
-            "Success when Item1==1 OR Item2 contains 'success'/'réuss'/'reuss' (ordinal ignore-case).";
+            "Success when ModuleStatus Item1 (module id) has not been seen yet this session (session-global set shared by M1/M2).";
 
         /// <summary>
-        /// Gaze object-name substrings for door-closed indicator (ObjectType, ordinal ignore-case).
+        /// Gaze object-name substrings for door-closed indicator (ObjectType, ordinal ignore-case). Provisional.
         /// </summary>
         public const string GazeIndicatorObjectSubstrings =
             "indicateur;indicator;doorclosed;porte ferm;closedindicator";
 
         /// <summary>
-        /// Gaze object-name substrings for door (ObjectType); indicator matches are excluded.
+        /// Gaze object-name substrings for door (ObjectType); indicator matches are excluded. Provisional.
         /// </summary>
         public const string GazeDoorObjectSubstrings = "porte;door";
 
         /// <summary>
-        /// Gaze dwell window: PortMap 150–250 ms (not CASPERAnalysis 50–150 ms).
+        /// Gaze dwell window lower bound (ms): 150–250 ms per <c>Logigramme1.md</c> node 4.
         /// </summary>
         public const int GazeDwellMinMs = 150;
 
@@ -67,40 +66,42 @@ namespace SaacAnalysisCasper.Core.Indices
         public const int GazeDwellMaxGapMs = 50;
 
         /// <summary>
-        /// Hand-near lookback after module-generation success (prior-art ~500 ms).
+        /// Node 4: indicator and/or door dwell combine window (ms) from node entry.
         /// </summary>
-        public const int HandNearLookbackMs = 500;
+        public const int GazeCombineWindowMs = 3000;
 
         /// <summary>
-        /// Door closed lookback/horizon for gaze→door Join: past (already closed) through near future (ms).
+        /// Node 2: DoorClosed level ∧ (SelectModule change | Validation) within this many milliseconds of node entry.
         /// </summary>
-        public const int DoorClosedJoinPastMs = 2000;
+        public const int PostDoorSelectOrValidationWindowMs = 2000;
 
         /// <summary>
-        /// Door closed future horizon for gaze→door Join (ms).
+        /// Node 7 / 8 family: aggregation / miss window from node entry (milliseconds).
         /// </summary>
-        public const int DoorClosedJoinFutureMs = 2000;
+        public const int SequenceWindowMs = 5000;
 
         /// <summary>
-        /// Alpha path: ≥ this many Validation rising edges within the aggregation window (speech omitted).
+        /// Alpha path: ≥ this many Validation rising edges, or Select→Validation pairs, inside <see cref="SequenceWindowMs"/>.
         /// </summary>
         public const int AlphaValidationCountThreshold = 3;
 
         /// <summary>
-        /// Aggregation window for counting validations toward Alpha (milliseconds).
+        /// Default miss timeout for nodes without an explicit window (nodes 1/3/9) in milliseconds.
         /// </summary>
-        public const int AlphaValidationWindowMs = 5000;
+        public const int DefaultNodeMissTimeoutMs = 5000;
 
         /// <summary>
-        /// Decision-tick window for exclusive priority mux (ms): at most one winning label per tick.
-        /// </summary>
-        public const int DecisionTickMs = 100;
-
-        /// <summary>
-        /// ExitGeneratorZone: fires on falling edge of zone <c>Item2</c> bool (true→false = exit);
-        /// messages with <c>Item1 != zoneIndex</c> are ignored.
+        /// ExitGeneratorZone: <c>info=="GeneratorArea"</c> and player <c>id==-1</c>; exit evidence = falling edge
+        /// (true→false) <strong>or</strong> level (<c>state==false</c>). Other Area infos must not false-pulse
+        /// (hold last GeneratorArea evidence). Zone parent selected by composition pairing (Area1 vs Area2).
         /// </summary>
         public const string ExitGeneratorZoneEdge =
-            "Exit when AreaN ValueTuple Item2 transitions from true to false (assumed in-zone flag); Item1 must match bound zoneIndex.";
+            "Exit evidence when AreaN info==GeneratorArea and Item1==-1 and (Item2 true→false edge OR Item2==false level); hold last on other infos.";
+
+        /// <summary>
+        /// DoorClosure (node 9): open→closed rising edge of DoorClosed, distinct from sustained DoorClosed (nodes 5/6).
+        /// </summary>
+        public const string DoorClosureEdge =
+            "DoorClosure pulses on false→true of DoorClosed (open→closed edge).";
     }
 }

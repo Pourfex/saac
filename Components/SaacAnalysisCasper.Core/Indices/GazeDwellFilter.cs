@@ -15,9 +15,9 @@ namespace SaacAnalysisCasper.Core.Indices
     /// </summary>
     /// <remarks>
     /// Dwell bounds: <see cref="IndexFilterAssumptions.GazeDwellMinMs"/>–
-    /// <see cref="IndexFilterAssumptions.GazeDwellMaxMs"/> (PortMap; not prior-art 50–150 ms).
-    /// Contiguity: matching-gaze samples may not gap more than <see cref="IndexFilterAssumptions.GazeDwellMaxGapMs"/>.
-    /// Emits rising-edge pulses when dwell becomes satisfied (not sustained true floods).
+    /// <see cref="IndexFilterAssumptions.GazeDwellMaxMs"/>.
+    /// Node 4 combine: indicator <strong>and/or</strong> door within <see cref="IndexFilterAssumptions.GazeCombineWindowMs"/>
+    /// via held OR (one silent arm must not starve).
     /// </remarks>
     public static class GazeDwellFilter
     {
@@ -77,6 +77,55 @@ namespace SaacAnalysisCasper.Core.Indices
         }
 
         /// <summary>
+        /// Node 4: indicator and/or door dwell levels combined with held OR (no Join-starve).
+        /// Miss window (3 s from node entry) is enforced by the stepper.
+        /// </summary>
+        /// <param name="pipeline">Owning pipeline.</param>
+        /// <param name="gazeEvent">Shared catalog GazeEvent stream.</param>
+        /// <param name="participant">Participant branch.</param>
+        /// <param name="deliveryPolicy">Optional delivery policy.</param>
+        /// <param name="name">Optional operator name.</param>
+        /// <returns>Held-OR level: true when either gaze arm satisfies dwell.</returns>
+        public static IProducer<bool> ApplyCombinedWithinWindow(
+            Pipeline pipeline,
+            IProducer<PsiGazeObjectEvent> gazeEvent,
+            ParticipantId participant,
+            DeliveryPolicy<PsiGazeObjectEvent>? deliveryPolicy = null,
+            string? name = null)
+        {
+            if (pipeline == null)
+            {
+                throw new ArgumentNullException(nameof(pipeline));
+            }
+
+            string operatorName = string.IsNullOrWhiteSpace(name)
+                ? nameof(GazeDwellFilter) + "-Combine"
+                : name;
+
+            string[] indicatorPatterns = SplitPatterns(IndexFilterAssumptions.GazeIndicatorObjectSubstrings);
+            string[] doorInclude = SplitPatterns(IndexFilterAssumptions.GazeDoorObjectSubstrings);
+            string[] doorExclude = SplitPatterns(IndexFilterAssumptions.GazeIndicatorObjectSubstrings);
+
+            IProducer<bool> indicatorLevel = ApplyDwellLevel(
+                gazeEvent,
+                participant,
+                indicatorPatterns,
+                excludeSubstrings: null,
+                deliveryPolicy,
+                operatorName + "-IndLevel");
+
+            IProducer<bool> doorLevel = ApplyDwellLevel(
+                gazeEvent,
+                participant,
+                doorInclude,
+                doorExclude,
+                deliveryPolicy,
+                operatorName + "-DoorLevel");
+
+            return BoolStreamOps.HeldOr(pipeline, indicatorLevel, doorLevel, operatorName + "-HeldOr");
+        }
+
+        /// <summary>
         /// Generic object-name + contiguous dwell filter with rising-edge emit.
         /// </summary>
         /// <param name="pipeline">Owning pipeline.</param>
@@ -101,6 +150,26 @@ namespace SaacAnalysisCasper.Core.Indices
                 throw new ArgumentNullException(nameof(pipeline));
             }
 
+            string operatorName = string.IsNullOrWhiteSpace(name) ? nameof(GazeDwellFilter) : name;
+            IProducer<bool> dwellLevel = ApplyDwellLevel(
+                gazeEvent,
+                participant,
+                includeSubstrings,
+                excludeSubstrings,
+                deliveryPolicy,
+                operatorName + "-Level");
+
+            return BoolStreamOps.RisingEdgeOnly(pipeline, dwellLevel, operatorName + "-DwellEdge");
+        }
+
+        private static IProducer<bool> ApplyDwellLevel(
+            IProducer<PsiGazeObjectEvent> gazeEvent,
+            ParticipantId participant,
+            string[] includeSubstrings,
+            string[]? excludeSubstrings,
+            DeliveryPolicy<PsiGazeObjectEvent>? deliveryPolicy,
+            string operatorName)
+        {
             if (gazeEvent == null)
             {
                 throw new ArgumentNullException(nameof(gazeEvent));
@@ -112,7 +181,6 @@ namespace SaacAnalysisCasper.Core.Indices
             }
 
             int userId = (int)participant;
-            string operatorName = string.IsNullOrWhiteSpace(name) ? nameof(GazeDwellFilter) : name;
             DeliveryPolicy<PsiGazeObjectEvent> policy = deliveryPolicy ?? DeliveryPolicy.Unlimited;
 
             IProducer<bool> matchingGaze = gazeEvent.Select(
@@ -123,13 +191,11 @@ namespace SaacAnalysisCasper.Core.Indices
                 policy,
                 operatorName + "-Match");
 
-            IProducer<bool> dwellLevel = matchingGaze.Window(
+            return matchingGaze.Window(
                 RelativeTimeInterval.Past(TimeSpan.FromMilliseconds(IndexFilterAssumptions.GazeDwellMaxMs)),
                 (IEnumerable<Message<bool>> messages) => HasContiguousDwell(messages),
                 DeliveryPolicy.Unlimited,
                 operatorName + "-DwellLevel");
-
-            return BoolStreamOps.RisingEdgeOnly(pipeline, dwellLevel, operatorName + "-DwellEdge");
         }
 
         private static bool HasContiguousDwell(IEnumerable<Message<bool>> messages)
@@ -155,7 +221,6 @@ namespace SaacAnalysisCasper.Core.Indices
 
             trueTimes.Sort();
 
-            // Walk contiguous runs (gap ≤ max); require a run whose span is in [min, max] dwell.
             int runStart = 0;
             for (int i = 1; i <= trueTimes.Count; i++)
             {

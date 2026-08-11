@@ -14,12 +14,12 @@ namespace SaacAnalysisCasper.Core.Logigrammes
     using SaacAnalysisCasper.Core.Windowing;
 
     /// <summary>
-    /// Logigramme 1 decision composition: wires derived-input filters into Alpha/Beta/Gamma
-    /// <see cref="ClassificationEvent"/> emissions (speech / VisualFeedback / Apprentissage omitted).
+    /// Logigramme 1 decision composition: wires derived-input filters into a stateful 9-node stepper
+    /// that emits Alpha/Beta/Gamma per Option C (E→Gamma, D→no-emit).
     /// </summary>
     /// <remarks>
-    /// Exclusive Miro else-tree via <see cref="Logigramme1PriorityMux"/> (at most one label per decision tick).
-    /// Science W is closed over for attribution; micro lookbacks use local <see cref="RelativeTimeInterval"/> gates.
+    /// Generator pairing: M1 → Door1+Zone1, M2 → Door2+Zone2 (do not OR both gens in one participant).
+    /// HandNear fail-closes until a door world-pose parent exists (Ask First — no invented topics).
     /// </remarks>
     public static class Logigramme1Operator
     {
@@ -45,7 +45,7 @@ namespace SaacAnalysisCasper.Core.Logigrammes
         /// <param name="leftWrist">Catalog left wrist pose.</param>
         /// <param name="rightWrist">Optional right wrist (M1); null for M2 / unbound.</param>
         /// <param name="name">Optional operator name prefix.</param>
-        /// <returns>Exclusive Alpha/Beta/Gamma classification stream.</returns>
+        /// <returns>Alpha/Beta/Gamma classification stream (D paths silent).</returns>
         public static IProducer<ClassificationEvent> Apply(
             Pipeline pipeline,
             ParticipantId participant,
@@ -116,126 +116,96 @@ namespace SaacAnalysisCasper.Core.Logigrammes
 
             string prefix = string.IsNullOrWhiteSpace(name) ? nameof(Logigramme1Operator) : name;
 
-            // --- Derived filters ---
-            IProducer<bool> moduleSuccess = ModuleGenerationSuccessFilter.Apply(
-                moduleStatus, DeliveryPolicy.Unlimited, prefix + "-ModuleSuccess");
-
-            IProducer<bool> doorClosed1 = DoorClosedFilter.Apply(door1, 1, DeliveryPolicy.Unlimited, prefix + "-DoorClosed1");
-            IProducer<bool> doorClosed2 = DoorClosedFilter.Apply(door2, 2, DeliveryPolicy.Unlimited, prefix + "-DoorClosed2");
-            IProducer<bool> doorClosedAny = BoolStreamOps.StickyOr(
-                doorClosed1,
-                doorClosed2,
-                IndexFilterAssumptions.StickyOrWindowMs,
-                prefix + "-DoorClosedAny");
-
-            IProducer<bool> handNear = HandNearDoorFilter.Apply(
-                leftWrist, door1, door2, rightWrist, DeliveryPolicy.Unlimited, prefix + "-HandNear");
-
-            // ExitGeneratorZone keep-alive (no leaf emit path).
-            IProducer<bool> exitZone1 = ExitGeneratorZoneFilter.Apply(
-                pipeline, zone1, 1, DeliveryPolicy.Unlimited, prefix + "-ExitZone1");
-            IProducer<bool> exitZone2 = ExitGeneratorZoneFilter.Apply(
-                pipeline, zone2, 2, DeliveryPolicy.Unlimited, prefix + "-ExitZone2");
-            BoolStreamOps.StickyOr(exitZone1, exitZone2, IndexFilterAssumptions.StickyOrWindowMs, prefix + "-ExitZoneOr")
-                .Do((_, __) => { }, DeliveryPolicy.LatestMessage, prefix + "-ExitZoneKeepAlive");
-
-            IProducer<bool> gazeIndicator = GazeDwellFilter.ApplyDoorClosedIndicator(
-                pipeline, gazeEvent, participant, DeliveryPolicy.Unlimited, prefix + "-GazeIndicator");
-            IProducer<bool> gazeDoor = GazeDwellFilter.ApplyDoor(
-                pipeline, gazeEvent, participant, DeliveryPolicy.Unlimited, prefix + "-GazeDoor");
-
-            IProducer<bool> repeatedValidationLevel = RepeatedValidationSequenceFilter.Apply(
-                pipeline, selectModule, validation, DeliveryPolicy.Unlimited, prefix + "-RepeatedVal");
-            IProducer<bool> repeatedValidation = BoolStreamOps.RisingEdgeOnly(
-                pipeline, repeatedValidationLevel, prefix + "-AlphaEdge");
-
-            IProducer<bool> differentButton = DifferentGeneratorButtonFilter.Apply(
-                pipeline, selectModule, DeliveryPolicy.Unlimited, prefix + "-DiffButton");
-
-            // --- Path pulses (exclusive mux inputs) ---
-            RelativeTimeInterval handLookback = RelativeTimeInterval.Past(
-                TimeSpan.FromMilliseconds(IndexFilterAssumptions.HandNearLookbackMs));
-
-            // Past-or-present door interval so gaze with already-closed door still classifies.
-            RelativeTimeInterval doorClosedJoin = new RelativeTimeInterval(
-                TimeSpan.FromMilliseconds(-IndexFilterAssumptions.DoorClosedJoinPastMs),
-                TimeSpan.FromMilliseconds(IndexFilterAssumptions.DoorClosedJoinFutureMs));
-
-            // 1) Anticipation Gamma: success ∧ HandNear lookback
-            IProducer<bool> anticipationPulse = moduleSuccess
-                .Where((bool s) => s, DeliveryPolicy.Unlimited, prefix + "-SuccessTrue")
-                .Join(
-                    handNear.Where((bool n) => n, DeliveryPolicy.Unlimited, prefix + "-HandTrue"),
-                    handLookback,
-                    DeliveryPolicy.Unlimited,
-                    DeliveryPolicy.Unlimited,
-                    prefix + "-SuccessHandJoin")
-                .Select((_) => true, DeliveryPolicy.Unlimited, prefix + "-AnticipationPulse");
-
-            // 2) Single gaze-path Gamma: GazeOnDoor ∧ DoorClosed (indicator and no-indicator both require GazeOnDoor;
-            //    avoiding parallel indicator+door leaves prevents double-fire). Indicator dwell is keep-observed.
-            gazeIndicator.Do((_, __) => { }, DeliveryPolicy.LatestMessage, prefix + "-IndicatorObserve");
-
-            IProducer<bool> gazeDoorTrue = gazeDoor.Where((bool v) => v, DeliveryPolicy.Unlimited, prefix + "-GazeDoorTrue");
-            IProducer<bool> gazePathPulse = gazeDoorTrue
-                .Join(
-                    doorClosedAny.Where((bool v) => v, DeliveryPolicy.Unlimited, prefix + "-DoorLevelTrue"),
-                    doorClosedJoin,
-                    DeliveryPolicy.Unlimited,
-                    DeliveryPolicy.Unlimited,
-                    prefix + "-GazeDoorClosedJoin")
-                .Select((_) => true, DeliveryPolicy.Unlimited, prefix + "-GazePathPulse");
-
-            // 3) Alpha / 4) Beta pulses (already edges where applicable)
-            IProducer<bool> alphaPulse = repeatedValidation;
-            IProducer<bool> betaPulse = differentButton.Where((bool v) => v, DeliveryPolicy.Unlimited, prefix + "-BetaTrue");
-
-            // 5) Else DoorClosed — rising edge only (once-per-closure), not sustained closed samples
-            IProducer<bool> doorClosedEdge = BoolStreamOps.RisingEdge(
-                pipeline, doorClosedAny, prefix + "-DoorClosedEdge");
-
-            IProducer<Logigramme1PriorityMux.Candidate>[] tagged = new[]
+            // M1 → Door1+Zone1; M2 → Door2+Zone2. Keep the unused pair observed (catalog Connect).
+            int generatorIndex = (int)participant;
+            IProducer<ValueTuple<bool, Vector3>> pairedDoor;
+            IProducer<ValueTuple<int, bool, string>> pairedZone;
+            IProducer<ValueTuple<bool, Vector3>> unusedDoor;
+            IProducer<ValueTuple<int, bool, string>> unusedZone;
+            if (generatorIndex == 1)
             {
-                Logigramme1PriorityMux.FromPulse(
-                    anticipationPulse,
-                    Logigramme1PriorityMux.PriorityAnticipationGamma,
-                    ClassificationLabel.Gamma,
-                    prefix + "-TagAnticipation"),
-                Logigramme1PriorityMux.FromPulse(
-                    gazePathPulse,
-                    Logigramme1PriorityMux.PriorityGazeGamma,
-                    ClassificationLabel.Gamma,
-                    prefix + "-TagGaze"),
-                Logigramme1PriorityMux.FromPulse(
-                    alphaPulse,
-                    Logigramme1PriorityMux.PriorityAlpha,
-                    ClassificationLabel.Alpha,
-                    prefix + "-TagAlpha"),
-                Logigramme1PriorityMux.FromPulse(
-                    betaPulse,
-                    Logigramme1PriorityMux.PriorityBeta,
-                    ClassificationLabel.Beta,
-                    prefix + "-TagBeta"),
-                Logigramme1PriorityMux.FromPulse(
-                    doorClosedEdge,
-                    Logigramme1PriorityMux.PriorityDoorElseGamma,
-                    ClassificationLabel.Gamma,
-                    prefix + "-TagDoorElse"),
-            };
+                pairedDoor = door1;
+                pairedZone = zone1;
+                unusedDoor = door2;
+                unusedZone = zone2;
+            }
+            else
+            {
+                pairedDoor = door2;
+                pairedZone = zone2;
+                unusedDoor = door1;
+                unusedZone = zone1;
+            }
 
-            IProducer<Logigramme1PriorityMux.Candidate> merged = Operators.Merge(
-                    tagged,
-                    DeliveryPolicy.Unlimited,
-                    prefix + "-CandidateMerge")
-                .Select(
-                    (Message<Logigramme1PriorityMux.Candidate> m) => m.Data,
-                    DeliveryPolicy.Unlimited,
-                    prefix + "-CandidateUnwrap");
+            unusedDoor.Do((_, __) => { }, DeliveryPolicy.LatestMessage, prefix + "-UnusedDoorKeep");
+            unusedZone.Do((_, __) => { }, DeliveryPolicy.LatestMessage, prefix + "-UnusedZoneKeep");
+
+            // --- Derived filters (nodes 1–9) ---
+            IProducer<bool> moduleSuccess = ModuleGenerationSuccessFilter.Apply(
+                pipeline, moduleStatus, DeliveryPolicy.Unlimited, prefix + "-ModuleSuccess");
+
+            IProducer<bool> doorClosed = DoorClosedFilter.Apply(
+                pairedDoor, generatorIndex, DeliveryPolicy.Unlimited, prefix + "-DoorClosed");
+
+            IProducer<bool> postDoorSelectOrValidation = PostDoorSelectOrValidationFilter.Apply(
+                pipeline,
+                doorClosed,
+                selectModule,
+                validation,
+                DeliveryPolicy.Unlimited,
+                prefix + "-PostDoorSelectOrVal");
+
+            IProducer<bool> exitZone = ExitGeneratorZoneFilter.Apply(
+                pipeline, pairedZone, generatorIndex, DeliveryPolicy.Unlimited, prefix + "-ExitZone");
+
+            // HandNear: wrists wired; door world pose absent → fail-closed (always false). Door∧exit arm still works.
+            IProducer<bool> handNear = HandNearDoorFilter.Apply(
+                pipeline,
+                leftWrist,
+                rightWrist,
+                doorWorldPose: null,
+                DeliveryPolicy.Unlimited,
+                prefix + "-HandNear");
+
+            // Node 3: sticky/held DoorClosed∧exit and HandNear∧exit (not ±250 ms Join).
+            IProducer<bool> doorAndExit = BoolStreamOps.HeldAnd(
+                pipeline, doorClosed, exitZone, prefix + "-DoorAndExit");
+            IProducer<bool> handAndExit = BoolStreamOps.HeldAnd(
+                pipeline, handNear, exitZone, prefix + "-HandAndExit");
+            IProducer<bool> node3Hit = BoolStreamOps.HeldOr(
+                pipeline, doorAndExit, handAndExit, prefix + "-Node3Hit");
+
+            IProducer<bool> gazeCombined = GazeDwellFilter.ApplyCombinedWithinWindow(
+                pipeline, gazeEvent, participant, DeliveryPolicy.Unlimited, prefix + "-GazeCombine");
+
+            RepeatedValidationSequenceFilter.Component alphaFilter = RepeatedValidationSequenceFilter.Create(
+                pipeline, prefix + "-RepeatedVal");
+            selectModule.PipeTo(alphaFilter.SelectModuleIn, DeliveryPolicy.Unlimited);
+            validation.PipeTo(alphaFilter.ValidationIn, DeliveryPolicy.Unlimited);
+
+            DifferentGeneratorButtonFilter.Component betaFilter = DifferentGeneratorButtonFilter.Create(
+                pipeline, prefix + "-DiffButton");
+            selectModule.PipeTo(betaFilter.SelectModuleIn, DeliveryPolicy.Unlimited);
+            validation.PipeTo(betaFilter.ValidationIn, DeliveryPolicy.Unlimited);
+
+            IProducer<bool> doorClosure = DoorClosureFilter.Apply(
+                pipeline, pairedDoor, generatorIndex, DeliveryPolicy.Unlimited, prefix + "-DoorClosure");
 
             // windowMs validated above — closed over instance for AD-8 attribution.
             _ = windowMs;
 
-            return Logigramme1PriorityMux.Apply(merged, participant, prefix + "-ExclusiveMux");
+            return Logigramme1NodeStepper.Apply(
+                pipeline,
+                participant,
+                moduleSuccess,
+                postDoorSelectOrValidation,
+                node3Hit,
+                gazeCombined,
+                doorClosed,
+                alphaFilter,
+                betaFilter,
+                doorClosure,
+                prefix + "-Stepper");
         }
     }
 }

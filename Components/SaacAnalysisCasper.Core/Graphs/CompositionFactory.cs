@@ -6,6 +6,7 @@ namespace SaacAnalysisCasper.Core.Graphs
 {
     using System;
     using Microsoft.Psi;
+    using SaacAnalysisCasper.Core.Indices;
     using SaacAnalysisCasper.Core.Mapping;
 
     /// <summary>
@@ -13,6 +14,10 @@ namespace SaacAnalysisCasper.Core.Graphs
     /// </summary>
     public static class CompositionFactory
     {
+        private static readonly object SessionResetGate = new object();
+
+        private static Pipeline? sessionResetForPipeline;
+
         /// <summary>
         /// Creates a new composition instance for the given graph and participant, closed over <paramref name="windowMs"/>.
         /// Call once per participant × W (AD-3: independent instances; never merge M1/M2).
@@ -45,12 +50,37 @@ namespace SaacAnalysisCasper.Core.Graphs
 
             if (string.Equals(graphId, "Logigramme1", StringComparison.Ordinal))
             {
+                // Session-global ModuleStatus seen-set: ResetSession once per analysis pipeline, not M1-only Apply.
+                EnsureLogigramme1SessionReset(pipeline, participant);
                 return new Logigramme1BindableComposition(pipeline, participant, windowMs);
             }
 
             throw new InvalidOperationException(
                 "Unknown or unsupported graph id '" + graphId
                 + "' for dual-user binding. Supported: Poc, Logigramme1.");
+        }
+
+        private static void EnsureLogigramme1SessionReset(Pipeline pipeline, ParticipantId participant)
+        {
+            lock (SessionResetGate)
+            {
+                // Reset once per analysis pipeline when M1 is created (or first Create if M2-only).
+                // Reusing the same Pipeline for a new run that creates M1 again also resets.
+                bool samePipeline = ReferenceEquals(sessionResetForPipeline, pipeline);
+                if (samePipeline && participant != ParticipantId.M1)
+                {
+                    return;
+                }
+
+                if (samePipeline && participant == ParticipantId.M1)
+                {
+                    ModuleGenerationSuccessFilter.ResetSession();
+                    return;
+                }
+
+                ModuleGenerationSuccessFilter.ResetSession();
+                sessionResetForPipeline = pipeline;
+            }
         }
     }
 }

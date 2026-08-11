@@ -9,71 +9,73 @@ namespace SaacAnalysisCasper.Core.Indices
     using Microsoft.Psi;
 
     /// <summary>
-    /// Derives hand-near-door proximity from wrist pose(s) + door parent pose(s).
+    /// Derives hand-near-door proximity from wrist pose(s) + optional door world pose.
     /// </summary>
     /// <remarks>
-    /// Distance threshold: <see cref="IndexFilterAssumptions.HandNearDoorDistanceMeters"/> meters.
-    /// Door pose parent = door stream <c>Item2</c> Vector3 (not a separate catalog pose topic).
-    /// Join tolerance: ±<see cref="IndexFilterAssumptions.HandNearDoorJoinToleranceMs"/> ms (not Infinite).
-    /// M2: LeftWrist only. M1: LeftWrist required; optional RightWrist when connected.
-    /// Dual-wrist combine uses sticky OR (not last-writer-wins Merge unwrap).
+        /// Threshold: <see cref="IndexFilterAssumptions.HandNearDoorDistanceMeters"/> (&lt;1 m).
+        /// Wrists: <c>Item1</c> world meters. Catalog has no door world pose today (<c>PorteN</c> Item2 = Euler) —
+        /// without a door world-pose parent the hand arm <strong>fail-closes</strong> (always false).
+        /// Do not invent pose/bounds topics. M2: LeftWrist only; M1 may bind optional RightWrist.
     /// </remarks>
     public static class HandNearDoorFilter
     {
         /// <summary>
-        /// Emits true when any connected wrist is within threshold of any provided door position.
+        /// Emits true when any connected wrist is within threshold of a provided door world pose.
+        /// When <paramref name="doorWorldPose"/> is null, wrists are keep-alive observed and output stays false.
         /// </summary>
+        /// <param name="pipeline">Owning pipeline (required for fail-closed path naming).</param>
         /// <param name="leftWrist">Required left-wrist pose stream.</param>
-        /// <param name="door1">Generator door 1 open/pose stream.</param>
-        /// <param name="door2">Generator door 2 open/pose stream.</param>
-        /// <param name="rightWrist">Optional right-wrist pose (M1 only when connected); null skips.</param>
+        /// <param name="rightWrist">Optional right-wrist pose (M1 when connected); null skips.</param>
+        /// <param name="doorWorldPose">Optional door world position; null → fail-closed hand arm.</param>
         /// <param name="deliveryPolicy">Optional delivery policy for primary fusion.</param>
         /// <param name="name">Optional operator name.</param>
-        /// <returns>Proximity bool stream.</returns>
+        /// <returns>Proximity bool stream (false until a door world pose parent exists).</returns>
         public static IProducer<bool> Apply(
+            Pipeline pipeline,
             IProducer<Tuple<Vector3, Vector3>> leftWrist,
-            IProducer<ValueTuple<bool, Vector3>> door1,
-            IProducer<ValueTuple<bool, Vector3>> door2,
             IProducer<Tuple<Vector3, Vector3>>? rightWrist = null,
+            IProducer<Vector3>? doorWorldPose = null,
             DeliveryPolicy? deliveryPolicy = null,
             string? name = null)
         {
+            if (pipeline == null)
+            {
+                throw new ArgumentNullException(nameof(pipeline));
+            }
+
             if (leftWrist == null)
             {
                 throw new ArgumentNullException(nameof(leftWrist));
             }
 
-            if (door1 == null)
-            {
-                throw new ArgumentNullException(nameof(door1));
-            }
-
-            if (door2 == null)
-            {
-                throw new ArgumentNullException(nameof(door2));
-            }
-
             string operatorName = string.IsNullOrWhiteSpace(name) ? nameof(HandNearDoorFilter) : name;
-            float threshold = IndexFilterAssumptions.HandNearDoorDistanceMeters;
             DeliveryPolicy policy = deliveryPolicy ?? DeliveryPolicy.Unlimited;
+
+            // Keep wrists observed even when fail-closed so catalog Connect stays live.
+            leftWrist.Do((_, __) => { }, DeliveryPolicy.LatestMessage, operatorName + "-LeftKeep");
+            if (rightWrist != null)
+            {
+                rightWrist.Do((_, __) => { }, DeliveryPolicy.LatestMessage, operatorName + "-RightKeep");
+            }
+
+            if (doorWorldPose == null)
+            {
+                // Fail-close hand arm until Alexis confirms a pose/bounds parent (Ask First — no invented topics).
+                return leftWrist.Select(
+                    (Tuple<Vector3, Vector3> _) => false,
+                    policy,
+                    operatorName + "-FailClosed");
+            }
+
+            float threshold = IndexFilterAssumptions.HandNearDoorDistanceMeters;
             int joinMs = IndexFilterAssumptions.HandNearDoorJoinToleranceMs;
             RelativeTimeInterval joinTol = new RelativeTimeInterval(
                 TimeSpan.FromMilliseconds(-joinMs),
                 TimeSpan.FromMilliseconds(joinMs));
 
-            IProducer<Vector3> door1Pos = door1.Select(
-                (ValueTuple<bool, Vector3> door) => door.Item2,
-                DeliveryPolicy.Unlimited,
-                operatorName + "-Door1Pos");
-            IProducer<Vector3> door2Pos = door2.Select(
-                (ValueTuple<bool, Vector3> door) => door.Item2,
-                DeliveryPolicy.Unlimited,
-                operatorName + "-Door2Pos");
-
             IProducer<bool> leftNear = ProjectNear(
                 leftWrist,
-                door1Pos,
-                door2Pos,
+                doorWorldPose,
                 threshold,
                 joinTol,
                 policy,
@@ -86,8 +88,7 @@ namespace SaacAnalysisCasper.Core.Indices
 
             IProducer<bool> rightNear = ProjectNear(
                 rightWrist,
-                door1Pos,
-                door2Pos,
+                doorWorldPose,
                 threshold,
                 joinTol,
                 policy,
@@ -102,14 +103,12 @@ namespace SaacAnalysisCasper.Core.Indices
 
         private static IProducer<bool> ProjectNear(
             IProducer<Tuple<Vector3, Vector3>> wrist,
-            IProducer<Vector3> door1Pos,
-            IProducer<Vector3> door2Pos,
+            IProducer<Vector3> doorPos,
             float threshold,
             RelativeTimeInterval joinTol,
             DeliveryPolicy policy,
             string operatorName)
         {
-            // Null-check pose Tuple before reading Item1.
             IProducer<Tuple<Vector3, Vector3>> nonNullWrist = wrist.Where(
                 (Tuple<Vector3, Vector3> pose) => pose != null,
                 DeliveryPolicy.Unlimited,
@@ -121,19 +120,16 @@ namespace SaacAnalysisCasper.Core.Indices
                 operatorName + "-SafeHand");
 
             return safeHand
-                .Join(door1Pos, joinTol, policy, DeliveryPolicy.Unlimited, operatorName + "-J1")
-                .Join(door2Pos, joinTol, DeliveryPolicy.Unlimited, DeliveryPolicy.Unlimited, operatorName + "-J2")
+                .Join(doorPos, joinTol, policy, DeliveryPolicy.Unlimited, operatorName + "-Join")
                 .Select(
-                    (ValueTuple<Vector3, Vector3, Vector3> fused) =>
-                        IsNear(fused.Item1, fused.Item2, threshold)
-                        || IsNear(fused.Item1, fused.Item3, threshold),
+                    (ValueTuple<Vector3, Vector3> fused) => IsNear(fused.Item1, fused.Item2, threshold),
                     DeliveryPolicy.Unlimited,
                     operatorName + "-Near");
         }
 
         private static bool IsNear(Vector3 hand, Vector3 door, float thresholdMeters)
         {
-            return Vector3.Distance(hand, door) <= thresholdMeters;
+            return Vector3.Distance(hand, door) < thresholdMeters;
         }
     }
 }
