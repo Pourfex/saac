@@ -6,22 +6,24 @@ namespace SaacAnalysisCasper.Core.Classification
 {
     /// <summary>
     /// Piaget classification label for Logigramme outcomes (AD-13).
-    /// Alpha / Beta / Gamma only — no Apprentissage, None, Anticipation*, or scores.
+    /// Alpha / Beta / Gamma only — no Apprentissage, N/A, None, Anticipation*, or scores.
+    /// Correct Course Option C sticky→wire collapse (E→Gamma emit, D→no-emit) is documented in
+    /// <c>Classification/OptionC.md</c>; do not expand this enum for those stickies.
     /// </summary>
     public enum ClassificationLabel
     {
         /// <summary>
-        /// Alpha outcome.
+        /// Alpha outcome (spec sticky A).
         /// </summary>
         Alpha = 0,
 
         /// <summary>
-        /// Beta outcome.
+        /// Beta outcome (spec sticky B).
         /// </summary>
         Beta = 1,
 
         /// <summary>
-        /// Gamma outcome.
+        /// Gamma outcome (spec sticky C, and Option C emit for sticky E Apprentissage).
         /// </summary>
         Gamma = 2,
     }

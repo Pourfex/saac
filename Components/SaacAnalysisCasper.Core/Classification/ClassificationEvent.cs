@@ -11,6 +11,8 @@ namespace SaacAnalysisCasper.Core.Classification
     /// Single-label Piaget classification product (AD-7 / AD-13 Core analysis DTO).
     /// OriginatingTime policy: when posted or exported, time lives on the Psi envelope —
     /// not as a payload <see cref="System.DateTime"/> / Timestamp field.
+    /// Wire labels are Alpha/Beta/Gamma only; sticky E→Gamma emit and D→no-emit
+    /// (see <c>Classification/OptionC.md</c>).
     /// </summary>
     public sealed class ClassificationEvent
     {

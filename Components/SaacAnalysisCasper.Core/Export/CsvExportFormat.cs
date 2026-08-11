@@ -40,7 +40,8 @@ namespace SaacAnalysisCasper.Core.Export
         public const string WindowMsHeader = "WindowMs";
 
         /// <summary>
-        /// Classification label column header (Story 2.2). Values are Alpha / Beta / Gamma.
+        /// Classification label column header (Story 2.2). Values are Alpha / Beta / Gamma only
+        /// (Option C — no Apprentissage/N/A product cells; see <c>Classification/OptionC.md</c>).
         /// </summary>
         public const string LabelHeader = "Label";
 
