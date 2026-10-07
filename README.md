@@ -16,9 +16,29 @@ Four folders:
 See the detailed [Installation Guide](https://github.com/SaacPSI/saac/wiki/Installation) in the wiki for complete setup instructions.
 
 **Quick setup:**
-* Clone the \psi repo [fork](https://github.com/SaacPSI/psi) and build the PsiStudio branch in **Release mode**.
-* Psi nuget packages will be output in `builds/PsiPackages`, add this folder to your nuget repository configuration.
-* Clone this repository and build the solution (target: x64).
+
+1. Clone the \psi [fork](https://github.com/SaacPSI/psi) and check out the branch used by SAAC (e.g. `PsiStudio`).
+2. Open **`Psi.sln`** (repo root) in Visual Studio and build **Release | Any CPU** (or **Release | x64**).  
+   Do **not** build individual `.csproj` files alone: `SolutionDir` is then undefined and packages land in `C:\Build\PsiPackages` instead of the feed folder.
+3. Confirm packages exist under `psi\Build\PsiPackages`, including SAAC-specific ones such as:
+   - `Microsoft.Psi.Media.Windows.x64.0.19.100.1-beta-SAAC.nupkg`
+   - `Microsoft.Psi.Runtime.0.19.100.1-beta-SAAC.nupkg`
+   - `Microsoft.Psi.Audio*.0.19.100.1-beta-SAAC.nupkg`
+   - `Microsoft.Psi.Interop.0.19.100.1-beta-SAAC.nupkg`  
+   If `Media.Windows.x64` is missing, rebuild that project from the solution (Release | Any CPU / x64). Native interop only builds as **x64**; the solution maps it correctly.
+4. Add a NuGet source named **Psi Local Packages** pointing at that folder, e.g.  
+   `C:\Users\<you>\Documents\Dev\psi\Build\PsiPackages`  
+   (VS: Tools → NuGet Package Manager → Package Sources, or `dotnet nuget add source "...\psi\Build\PsiPackages" --name "Psi Local Packages"`).
+5. After rebuilding Psi packages, clear the cached copy then restore SAAC:
+   ```powershell
+   # optional but recommended after a Psi rebuild
+   & ".\Build\PsiPackages\Install-LocalPackages.ps1"   # run from the psi repo
+   # then in saac:
+   dotnet restore SAAC.sln
+   ```
+6. Clone/build this repository (platform: **x64**).
+
+**If restore fails with `Microsoft.Psi.Media.Windows.x64 (>= 0.19.100.1-beta-SAAC) introuvable`:** the package is missing from Psi Local Packages (not a bad project reference). Rebuild Psi as above and verify the `.nupkg` is in `psi\Build\PsiPackages`, then restore again.
 
 ### Developer Setup (Optional)
 
