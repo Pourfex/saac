@@ -346,3 +346,5 @@ MigrationBackup/
 *.backup
 
 /Interop/PlumeInterop/bin
+Components/CollaborationModules/MetricsComputation/SlidingWindow/bin
+Components/CollaborationModules/Spatial/PositionOrientationComputation/bin
