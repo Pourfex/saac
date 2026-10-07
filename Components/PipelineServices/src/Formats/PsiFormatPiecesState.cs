@@ -11,7 +11,7 @@ namespace SAAC.PipelineServices
         /// <returns>A format instance for tuple of Vector3 serialization.</returns>
         public dynamic GetFormat()
         {
-            return PsiFormats.PsiFormatPiecesState.GetFormat();
+            return SAAC.PsiFormats.PsiFormatPiecesState.GetFormat();
         }
     }
 }

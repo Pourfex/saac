@@ -240,6 +240,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{6BA59333-3D13-4943-B430-CBE0A5B8EC5B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bhaptics", "Components\Bhaptics\Bhaptics.csproj", "{2426D998-9909-ED21-610E-FC6F60B96A94}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Collaboration Modules", "Collaboration Modules", "{EE477CF6-8092-474F-B159-52F81B863CB3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PositionOrientationComputation", "Components\CollaborationModules\Spatial\PositionOrientationComputation\PositionOrientationComputation.csproj", "{AB8DD0CF-393A-4655-A6D0-7E2D64D2C5BF}"
