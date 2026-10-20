@@ -106,21 +106,39 @@ namespace Logigram1Analysis.Tests
             }
         }
 
-        /// <summary>Present but empty required stream fails naming partition/stream.</summary>
+        /// <summary>Present but empty video stream (RequireData) fails naming partition/stream.</summary>
         [TestMethod]
-        public void VerifyRequiredStreams_EmptyRequiredStream_FailsNamingEmptyStream()
+        public void VerifyRequiredStreams_EmptyFullScreen_FailsNamingEmptyStream()
         {
             string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-zeromsg-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
             string pds = Path.Combine(folder, "ZeroMsg.pds");
             try
             {
-                Dataset dataset = CreatePreTestShapedDataset(folder, pds, area1WithData: false);
+                Dataset dataset = CreatePreTestShapedDataset(folder, pds, fullScreenWithData: false, area1WithData: true);
                 string error = OfflineCasperStoreConsole.VerifyRequiredStreams(dataset);
 
                 Assert.IsNotNull(error, "Expected empty-stream failure.");
                 StringAssert.Contains(error, "empty");
-                StringAssert.Contains(error, "Server/Area1");
+                StringAssert.Contains(error, "VideoRemoteApp/FullScreen");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Empty Area1 is OK (presence only) when video/audio have data.</summary>
+        [TestMethod]
+        public void VerifyRequiredStreams_EmptyArea1_PassesWhenVideoAudioHaveData()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-empty-area-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "EmptyArea.pds");
+            try
+            {
+                Dataset dataset = CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+                Assert.IsNull(OfflineCasperStoreConsole.VerifyRequiredStreams(dataset));
             }
             finally
             {
@@ -137,7 +155,7 @@ namespace Logigram1Analysis.Tests
             string pds = Path.Combine(folder, "Happy.pds");
             try
             {
-                CreatePreTestShapedDataset(folder, pds, area1WithData: true);
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
 
                 var stdout = new StringWriter();
                 var stderr = new StringWriter();
@@ -145,8 +163,8 @@ namespace Logigram1Analysis.Tests
 
                 Assert.AreEqual(0, exit, stderr.ToString());
                 StringAssert.Contains(stdout.ToString(), "connectors loaded");
-                StringAssert.Contains(stdout.ToString(), "required streams present with data");
-                foreach ((string partition, string stream) in OfflineCasperStoreConsole.RequiredStreams)
+                StringAssert.Contains(stdout.ToString(), "required streams OK");
+                foreach ((string partition, string stream, bool _) in OfflineCasperStoreConsole.RequiredStreams)
                 {
                     StringAssert.Contains(stdout.ToString(), partition + "/" + stream);
                 }
@@ -193,7 +211,7 @@ namespace Logigram1Analysis.Tests
             try
             {
                 // Dataset opens and would pass required-stream metadata; connector load is forced false.
-                CreatePreTestShapedDataset(folder, pds, area1WithData: true);
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: true);
 
                 var stdout = new StringWriter();
                 var stderr = new StringWriter();
@@ -357,13 +375,13 @@ namespace Logigram1Analysis.Tests
         }
 
         /// <summary>
-        /// Builds a PreTest.081-shaped Dataset. When <paramref name="area1WithData"/> is false, Server/Area1 has MessageCount 0.
+        /// Builds a PreTest.081-shaped Dataset.
         /// </summary>
-        private static Dataset CreatePreTestShapedDataset(string folder, string pdsPath, bool area1WithData)
+        private static Dataset CreatePreTestShapedDataset(string folder, string pdsPath, bool fullScreenWithData, bool area1WithData)
         {
             DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
 
-            WriteStore(folder, "VideoRemoteApp", new[] { ("FullScreen", true) }, start);
+            WriteStore(folder, "VideoRemoteApp", new[] { ("FullScreen", fullScreenWithData) }, start);
             WriteStore(folder, "WhisperStreaming", new[] { ("Audio_User_1", true), ("Audio_User_2", true) }, start);
             WriteStore(folder, "Server", new[] { ("Area1", area1WithData), ("Area2", true) }, start);
 

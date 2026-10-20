@@ -11,8 +11,11 @@ namespace Logigram1Analysis
     using System.Linq;
     using System.Security;
     using Microsoft.Psi;
+    using Microsoft.Psi.Audio;
     using Microsoft.Psi.Data;
+    using Microsoft.Psi.Imaging;
     using SAAC.PipelineServices;
+    using SAAC.PsiFormats;
 
     /// <summary>
     /// Opens a Casper <c>.pds</c> Dataset offline via <see cref="ReplayPipeline"/> and smoke-checks
@@ -27,14 +30,15 @@ namespace Logigram1Analysis
 
         /// <summary>
         /// Required partition/stream pairs matching PreTest.081 in PsiStudio.
+        /// <c>RequireData</c> is false for Area streams (presence only — Casper catalogues often list empty Area1/Area2).
         /// </summary>
-        public static readonly (string Partition, string Stream)[] RequiredStreams =
+        public static readonly (string Partition, string Stream, bool RequireData)[] RequiredStreams =
         {
-            ("VideoRemoteApp", "FullScreen"),
-            ("WhisperStreaming", "Audio_User_1"),
-            ("WhisperStreaming", "Audio_User_2"),
-            ("Server", "Area1"),
-            ("Server", "Area2"),
+            ("VideoRemoteApp", "FullScreen", true),
+            ("WhisperStreaming", "Audio_User_1", true),
+            ("WhisperStreaming", "Audio_User_2", true),
+            ("Server", "Area1", false),
+            ("Server", "Area2", false),
         };
 
         /// <summary>
@@ -53,6 +57,9 @@ namespace Logigram1Analysis
         {
             stdout = stdout ?? Console.Out;
             stderr = stderr ?? Console.Error;
+
+            // Force-load catalogue assemblies so DatasetLoader Type.GetType can resolve Casper stream types.
+            EnsureCatalogueAssembliesLoaded();
 
             string storePath;
             try
@@ -114,11 +121,14 @@ namespace Logigram1Analysis
                     return 1;
                 }
 
-                stdout.WriteLine($"Opened dataset \"{fullPath}\" offline; connectors loaded; required streams present with data.");
-                foreach ((string partition, string stream) in RequiredStreams)
+                stdout.WriteLine($"Opened dataset \"{fullPath}\" offline; connectors loaded; required streams OK (video/audio must have data; Area presence only).");
+                foreach ((string partition, string stream, bool requireData) in RequiredStreams)
                 {
                     IStreamMetadata metadata = FindStreamMetadata(pipeline.Dataset, partition, stream);
-                    stdout.WriteLine($"  {partition}/{stream}: {FormatDataSignal(metadata)}");
+                    string signal = requireData || HasRecordedData(metadata)
+                        ? FormatDataSignal(metadata)
+                        : "present (empty catalogue)";
+                    stdout.WriteLine($"  {partition}/{stream}: {signal}");
                 }
 
                 return 0;
@@ -197,7 +207,7 @@ namespace Logigram1Analysis
         }
 
         /// <summary>
-        /// Confirms each required partition/stream exists with non-empty recorded content.
+        /// Confirms each required partition/stream exists; streams with <c>RequireData</c> must also have recorded content.
         /// </summary>
         /// <param name="dataset">Loaded Psi Dataset.</param>
         /// <returns>Null on success; otherwise an error message naming the missing or empty stream.</returns>
@@ -208,7 +218,7 @@ namespace Logigram1Analysis
                 return "Dataset is null; cannot verify required streams.";
             }
 
-            foreach ((string partition, string stream) in RequiredStreams)
+            foreach ((string partition, string stream, bool requireData) in RequiredStreams)
             {
                 IStreamMetadata metadata = FindStreamMetadata(dataset, partition, stream);
                 if (metadata == null)
@@ -216,7 +226,7 @@ namespace Logigram1Analysis
                     return $"Required stream missing: {partition}/{stream}.";
                 }
 
-                if (!HasRecordedData(metadata))
+                if (requireData && !HasRecordedData(metadata))
                 {
                     return $"Required stream is empty (no recorded data): {partition}/{stream}.";
                 }
@@ -355,6 +365,21 @@ namespace Logigram1Analysis
             return partition.AvailableStreams != null
                 && partition.AvailableStreams.Any(stream =>
                     string.Equals(stream.StoreName, partitionName, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Touches types from Audio / Imaging / PsiFormats so their assemblies are loaded before DatasetLoader resolves catalogue names.
+        /// </summary>
+        private static void EnsureCatalogueAssembliesLoaded()
+        {
+            _ = typeof(AudioBuffer);
+            _ = typeof(Image);
+            _ = typeof(PsiBatterie);
+            _ = typeof(PsiBatteryEvent);
+            _ = typeof(PsiBatteryModuleEvent);
+            _ = typeof(PsiGazeObjectEvent);
+            _ = typeof(PsiBatteryFinish);
+            _ = typeof(PsiTV);
         }
     }
 }
