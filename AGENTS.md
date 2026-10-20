@@ -1,5 +1,5 @@
 <!-- bmad:context -->
-<!-- Verified 2026-10-07 against 0b0d6514a6dc3343f7d9f99427a219330b2c1e83. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+<!-- Verified 2026-10-20 against f31cd9e7b30dc587d0d53df4c7ca42b6e9f805be. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
 ## SAAC (System As A Collaborator)
 
