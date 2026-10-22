@@ -233,7 +233,8 @@ namespace Logigram1Analysis
                     FirstUnitPipelineRunner.RunAndPersist(
                         pipeline.Dataset,
                         batterySegments,
-                        resolvedOutput);
+                        resolvedOutput,
+                        fullPath);
                 }
                 catch (Exception exception)
                 {

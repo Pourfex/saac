@@ -841,10 +841,299 @@ namespace Logigram1Analysis.Tests
                         analysisDataset,
                         LogigramOutcome.StreamName),
                     "Expected Logigram1.Outcome stream in analysis Dataset (messages may be empty).");
+                AssertAnalysisSessionName(analysisDataset, pds);
             }
             finally
             {
                 TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Path-only retarget (FR4 / AD-9): same EnabledUnits on two distinct PreTest-shaped stores yields
+        /// distinct stdout + Dataset session attribution, sibling analysis paths, and Battery-scoped State.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithTwoStores_SameEnabledUnits_DistinctAttributionAndBatteryState()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-dual-store-" + Guid.NewGuid().ToString("N"));
+            string folderA = Path.Combine(root, "StoreA");
+            string folderB = Path.Combine(root, "StoreB");
+            Directory.CreateDirectory(folderA);
+            Directory.CreateDirectory(folderB);
+            string pdsA = Path.Combine(folderA, "FirstStore.pds");
+            string pdsB = Path.Combine(folderB, "SecondStore.pds");
+            string configPath = Path.Combine(root, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folderA,
+                    pdsA,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (11, start, start.AddSeconds(3)),
+                    });
+                CreatePreTestShapedDataset(
+                    folderB,
+                    pdsB,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (22, start, start.AddSeconds(4)),
+                    });
+
+                // Same unit config; only StorePath changes between runs (path-only retarget).
+                string enabledUnitsJson = "\"EnabledUnits\": [ \"Logigram1.FirstUnit\" ]";
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsA) + ", " + enabledUnitsJson + " }");
+                var stdoutA = new StringWriter();
+                var stderrA = new StringWriter();
+                int exitA = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdoutA, stderrA);
+                Assert.AreEqual(0, exitA, stderrA.ToString());
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsB) + ", " + enabledUnitsJson + " }");
+                var stdoutB = new StringWriter();
+                var stderrB = new StringWriter();
+                int exitB = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdoutB, stderrB);
+                Assert.AreEqual(0, exitB, stderrB.ToString());
+
+                AssertSessionIdentity(stdoutA.ToString(), pdsA);
+                AssertSessionIdentity(stdoutB.ToString(), pdsB);
+                Assert.AreNotEqual(
+                    Path.GetFullPath(pdsA),
+                    Path.GetFullPath(pdsB),
+                    "Fixture paths must differ for attribution proof.");
+
+                string siblingA = Path.Combine(folderA, "FirstStore.Logigram1Analysis.pds");
+                string siblingB = Path.Combine(folderB, "SecondStore.Logigram1Analysis.pds");
+                Assert.IsTrue(File.Exists(siblingA), stdoutA.ToString());
+                Assert.IsTrue(File.Exists(siblingB), stdoutB.ToString());
+                Assert.AreNotEqual(Path.GetFullPath(siblingA), Path.GetFullPath(siblingB));
+
+                Dataset analysisA = Dataset.Load(siblingA);
+                Dataset analysisB = Dataset.Load(siblingB);
+                AssertAnalysisSessionName(analysisA, pdsA);
+                AssertAnalysisSessionName(analysisB, pdsB);
+                Assert.AreNotEqual(
+                    FirstUnitPipelineRunner.FormatAnalysisSessionName(pdsA),
+                    FirstUnitPipelineRunner.FormatAnalysisSessionName(pdsB));
+
+                var statesA = ReadAnalysisStates(siblingA);
+                var statesB = ReadAnalysisStates(siblingB);
+                Assert.IsTrue(statesA.Any(state => state.BatteryId == 11), "Store A BatteryId=11");
+                Assert.IsTrue(statesB.Any(state => state.BatteryId == 22), "Store B BatteryId=22");
+            }
+            finally
+            {
+                TryDeleteDirectory(root);
+            }
+        }
+
+        /// <summary>
+        /// Shared OutputPath: second store run replaces prior analysis; Dataset session names the current input.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithTwoStores_SharedOutputPath_ReplacesAndNamesCurrentInput()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-shared-out-" + Guid.NewGuid().ToString("N"));
+            string folderA = Path.Combine(root, "A");
+            string folderB = Path.Combine(root, "B");
+            Directory.CreateDirectory(folderA);
+            Directory.CreateDirectory(folderB);
+            string pdsA = Path.Combine(folderA, "StoreA.pds");
+            string pdsB = Path.Combine(folderB, "StoreB.pds");
+            string sharedOut = Path.Combine(root, "SharedAnalysis.pds");
+            string configPath = Path.Combine(root, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folderA,
+                    pdsA,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (7, start, start.AddSeconds(2)),
+                    });
+                CreatePreTestShapedDataset(
+                    folderB,
+                    pdsB,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (8, start, start.AddSeconds(2)),
+                    });
+
+                string unitsAndOut =
+                    "\"EnabledUnits\": [ \"Logigram1.FirstUnit\" ], \"OutputPath\": " + JsonString(sharedOut);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsA) + ", " + unitsAndOut + " }");
+                Assert.AreEqual(
+                    0,
+                    OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, new StringWriter(), new StringWriter()));
+                Assert.IsTrue(File.Exists(sharedOut));
+                AssertAnalysisSessionName(Dataset.Load(sharedOut), pdsA);
+                Assert.IsTrue(ReadAnalysisStates(sharedOut).Any(state => state.BatteryId == 7));
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsB) + ", " + unitsAndOut + " }");
+                var stdoutB = new StringWriter();
+                var stderrB = new StringWriter();
+                int exitB = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdoutB, stderrB);
+                Assert.AreEqual(0, exitB, stderrB.ToString());
+                AssertSessionIdentity(stdoutB.ToString(), pdsB);
+                Assert.IsTrue(File.Exists(sharedOut));
+
+                Dataset afterSecond = Dataset.Load(sharedOut);
+                AssertAnalysisSessionName(afterSecond, pdsB);
+                string expectedSessionA = ExpectedAnalysisSessionName(pdsA);
+                Assert.AreNotEqual(
+                    expectedSessionA,
+                    afterSecond.Sessions[0].Name,
+                    "Shared OutputPath re-run must replace prior session attribution.");
+                Assert.IsTrue(ReadAnalysisStates(sharedOut).Any(state => state.BatteryId == 8));
+                Assert.IsFalse(
+                    ReadAnalysisStates(sharedOut).Any(state => state.BatteryId == 7),
+                    "Clear-before-write must not leave BatteryId from the first store.");
+            }
+            finally
+            {
+                TryDeleteDirectory(root);
+            }
+        }
+
+        /// <summary>
+        /// Second store lacking Spawn→Finish fails explicitly; no fabricated Battery / analysis success.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithSecondStoreMissingBatteryBoundaries_FailsExplicitly()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-dual-battery-fail-" + Guid.NewGuid().ToString("N"));
+            string folderOk = Path.Combine(root, "Ok");
+            string folderBad = Path.Combine(root, "Bad");
+            Directory.CreateDirectory(folderOk);
+            Directory.CreateDirectory(folderBad);
+            string pdsOk = Path.Combine(folderOk, "OkStore.pds");
+            string pdsBad = Path.Combine(folderBad, "BadStore.pds");
+            string configPath = Path.Combine(root, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folderOk,
+                    pdsOk,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+                CreatePreTestShapedDataset(
+                    folderBad,
+                    pdsBad,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    includeBatteryBoundaries: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsOk)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+                Assert.AreEqual(
+                    0,
+                    OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, new StringWriter(), new StringWriter()));
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsBad)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                AssertSessionIdentity(stdout.ToString(), pdsBad);
+                Assert.IsTrue(
+                    stderr.ToString().IndexOf("Battery", StringComparison.OrdinalIgnoreCase) >= 0,
+                    stderr.ToString());
+                Assert.IsFalse(
+                    File.Exists(Path.Combine(folderBad, "BadStore.Logigram1Analysis.pds")),
+                    "Battery fail must not write analysis Dataset.");
+            }
+            finally
+            {
+                TryDeleteDirectory(root);
+            }
+        }
+
+        /// <summary>
+        /// Second store missing FirstUnit topics fails with explicit gaps (same EnabledUnits as a prior success).
+        /// </summary>
+        [TestMethod]
+        public void Run_WithSecondStoreMissingTopics_FailsWithGaps()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-dual-topic-gap-" + Guid.NewGuid().ToString("N"));
+            string folderOk = Path.Combine(root, "Ok");
+            string folderGap = Path.Combine(root, "Gap");
+            Directory.CreateDirectory(folderOk);
+            Directory.CreateDirectory(folderGap);
+            string pdsOk = Path.Combine(folderOk, "OkStore.pds");
+            string pdsGap = Path.Combine(folderGap, "GapStore.pds");
+            string configPath = Path.Combine(root, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folderOk,
+                    pdsOk,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+
+                // Substrate + Battery only — no FirstUnit topics.
+                CreatePreTestShapedDataset(
+                    folderGap,
+                    pdsGap,
+                    fullScreenWithData: true,
+                    area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsOk)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+                Assert.AreEqual(
+                    0,
+                    OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, new StringWriter(), new StringWriter()));
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pdsGap)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                AssertSessionIdentity(stdout.ToString(), pdsGap);
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing:");
+                Assert.IsFalse(File.Exists(Path.Combine(folderGap, "GapStore.Logigram1Analysis.pds")));
+            }
+            finally
+            {
+                TryDeleteDirectory(root);
             }
         }
 
@@ -1330,6 +1619,26 @@ namespace Logigram1Analysis.Tests
             StringAssert.Contains(output, "Session identity:");
             StringAssert.Contains(output, "path=" + fullPath);
             StringAssert.Contains(output, "id=" + id);
+        }
+
+        private static void AssertAnalysisSessionName(Dataset analysisDataset, string inputStorePath)
+        {
+            Assert.IsNotNull(analysisDataset);
+            Assert.AreEqual(1, analysisDataset.Sessions.Count, "Analysis Dataset must have exactly one session.");
+            Assert.AreEqual(
+                ExpectedAnalysisSessionName(inputStorePath),
+                analysisDataset.Sessions[0].Name,
+                "SESSION_ATTR: analysis Dataset session name must encode input store path/id.");
+        }
+
+        /// <summary>
+        /// Independent oracle for SESSION_ATTR wire format (must not call production formatter).
+        /// </summary>
+        private static string ExpectedAnalysisSessionName(string inputStorePath)
+        {
+            string fullPath = Path.GetFullPath(inputStorePath);
+            string id = Path.GetFileName(fullPath);
+            return "path=" + fullPath + " id=" + id;
         }
 
         private static string JsonString(string value)

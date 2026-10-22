@@ -11,6 +11,7 @@ namespace Logigram1Analysis
     using System.IO;
     using System.Linq;
     using System.Numerics;
+    using System.Security;
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using SAAC.Logigram1;
@@ -33,12 +34,14 @@ namespace Logigram1Analysis
         /// <param name="dataset">Loaded input Dataset (topics already verified present).</param>
         /// <param name="batterySegments">Discovered Spawn→Finish segments for BatteryId stamping.</param>
         /// <param name="resolvedOutputPds">Validated absolute output <c>.pds</c> path.</param>
+        /// <param name="inputStorePath">Absolute input Casper <c>.pds</c> (SESSION_ATTR session name).</param>
         /// <param name="findStreamByExactName">Stream lookup (defaults to console helper).</param>
         /// <exception cref="InvalidOperationException">Missing topic stream or persist failure.</exception>
         public static void RunAndPersist(
             Dataset dataset,
             IReadOnlyList<BatterySegment> batterySegments,
             string resolvedOutputPds,
+            string inputStorePath,
             Func<Dataset, string, IStreamMetadata> findStreamByExactName = null)
         {
             if (dataset == null)
@@ -119,7 +122,50 @@ namespace Logigram1Analysis
                 }
             }
 
-            SaveAnalysisDataset(resolvedOutputPds, storeRoot);
+            SaveAnalysisDataset(resolvedOutputPds, storeRoot, inputStorePath);
+        }
+
+        /// <summary>
+        /// SESSION_ATTR A: builds the analysis Dataset session name from the input store path and id
+        /// (<c>.pds</c> filename), matching the stdout identity fields.
+        /// </summary>
+        /// <param name="inputStorePath">Input Casper <c>.pds</c> path (preferably absolute).</param>
+        /// <returns>Session name of the form <c>path=… id=…</c>.</returns>
+        public static string FormatAnalysisSessionName(string inputStorePath)
+        {
+            string path = inputStorePath ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    path = Path.GetFullPath(path);
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException
+                    || exception is PathTooLongException
+                    || exception is NotSupportedException
+                    || exception is SecurityException)
+                {
+                    // Keep the raw path when normalization fails.
+                }
+            }
+
+            string id;
+            try
+            {
+                id = Path.GetFileName(path);
+            }
+            catch (ArgumentException)
+            {
+                id = path;
+            }
+
+            if (string.IsNullOrEmpty(id))
+            {
+                id = path;
+            }
+
+            return $"path={path} id={id}";
         }
 
         private static PsiImporter GetOrOpenImporter(
@@ -175,7 +221,10 @@ namespace Logigram1Analysis
             }
         }
 
-        private static void SaveAnalysisDataset(string resolvedOutputPds, string storeRoot)
+        private static void SaveAnalysisDataset(
+            string resolvedOutputPds,
+            string storeRoot,
+            string inputStorePath)
         {
             string directory = Path.GetDirectoryName(resolvedOutputPds);
             if (!string.IsNullOrEmpty(directory))
@@ -191,7 +240,8 @@ namespace Logigram1Analysis
                     Path.GetFileNameWithoutExtension(resolvedOutputPds),
                     stagingPds,
                     autoSave: true);
-                Session session = dataset.AddEmptySession("Session");
+                // SESSION_ATTR A: encode input store path/id (not hard-coded "Session").
+                Session session = dataset.AddEmptySession(FormatAnalysisSessionName(inputStorePath));
                 session.AddPartitionFromPsiStoreAsync(AnalysisStoreName, storeRoot).GetAwaiter().GetResult();
                 dataset.Save();
 
