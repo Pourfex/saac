@@ -23,7 +23,7 @@ namespace Logigram1Analysis
     /// PreTest.081-shaped required streams without running a full replay.
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
-    /// When <c>Logigram1.FirstUnit</c> is enabled, runs the interim stub and persists analysis State/Outcome.
+    /// When <c>Logigram1.FirstUnit</c> is enabled, runs nodes 1–2 derivation and persists analysis State/Outcome.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {

@@ -831,16 +831,26 @@ namespace Logigram1Analysis.Tests
                 Assert.IsTrue(
                     states.Any(state =>
                         state.Status != null
-                        && state.Status.IndexOf("interim-stub", StringComparison.Ordinal) >= 0),
-                    "Expected interim-stub Status labels.");
+                        && state.Status.IndexOf("node-1", StringComparison.Ordinal) >= 0),
+                    "Expected node-1 Status from Module status derivation.");
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.Status != null
+                        && state.Status.IndexOf("node-2", StringComparison.Ordinal) >= 0),
+                    "Expected node-2 Status from door-close + select derivation.");
 
-                // Outcome stream must be present even when empty (no fabricated regulation).
+                var outcomes = ReadAnalysisOutcomes(outputPds);
+                Assert.IsTrue(
+                    outcomes.Any(outcome =>
+                        outcome.Regulation == LogigramRegulation.Gamma && outcome.BatteryId == 42),
+                    "Expected at least one persisted Gamma Outcome with BatteryId=42.");
+
                 Dataset analysisDataset = Dataset.Load(outputPds);
                 Assert.IsNotNull(
                     OfflineCasperStoreConsole.FindStreamByExactName(
                         analysisDataset,
                         LogigramOutcome.StreamName),
-                    "Expected Logigram1.Outcome stream in analysis Dataset (messages may be empty).");
+                    "Expected Logigram1.Outcome stream in analysis Dataset.");
                 AssertAnalysisSessionName(analysisDataset, pds);
             }
             finally
@@ -1544,7 +1554,8 @@ namespace Logigram1Analysis.Tests
         }
 
         /// <summary>
-        /// Writes FirstUnit AD-7 topics with Casper catalogue types (payload ignored by interim stub).
+        /// Writes FirstUnit AD-7 topics with Casper catalogue types and staggered times so
+        /// node 1 (new module id) then door-close + select fall inside the 2s node-2 window.
         /// </summary>
         private static void WriteFirstUnitTopicStreams(
             Pipeline pipeline,
@@ -1567,18 +1578,19 @@ namespace Logigram1Analysis.Tests
                     case "Porte2 ouverture":
                         Generators.Sequence(
                                 pipeline,
-                                new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time) })
+                                new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time.AddSeconds(0.5)) })
                             .Write(topic, store);
                         break;
 
                     case "M1-SelectModule":
                     case "M2-SelectModule":
-                        Generators.Sequence(pipeline, new[] { ("6V", time) }).Write(topic, store);
+                        Generators.Sequence(pipeline, new[] { ("6V", time.AddSeconds(1.0)) }).Write(topic, store);
                         break;
 
                     case "M1-Validation":
                     case "M2-Validation":
-                        Generators.Sequence(pipeline, new[] { (true, time) }).Write(topic, store);
+                        // Idle/false — select already covers node-2; avoid a second fire from true.
+                        Generators.Sequence(pipeline, new[] { (false, time.AddSeconds(1.2)) }).Write(topic, store);
                         break;
 
                     default:
@@ -1605,6 +1617,30 @@ namespace Logigram1Analysis.Tests
                     {
                         Status = state.Status,
                         BatteryId = state.BatteryId,
+                    }));
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+            }
+
+            return results;
+        }
+
+        private static List<LogigramOutcome> ReadAnalysisOutcomes(string analysisPdsPath)
+        {
+            var results = new List<LogigramOutcome>();
+            Dataset dataset = Dataset.Load(analysisPdsPath);
+            IStreamMetadata metadata = OfflineCasperStoreConsole.FindStreamByExactName(
+                dataset,
+                LogigramOutcome.StreamName);
+            Assert.IsNotNull(metadata, "Expected Logigram1.Outcome in analysis Dataset.");
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(ReadAnalysisOutcomes)))
+            {
+                PsiImporter store = PsiStore.Open(pipeline, metadata.StoreName, metadata.StorePath);
+                store.OpenStream<LogigramOutcome>(metadata.Name)
+                    .Do(outcome => results.Add(new LogigramOutcome
+                    {
+                        Regulation = outcome.Regulation,
+                        BatteryId = outcome.BatteryId,
                     }));
                 pipeline.Run(ReplayDescriptor.ReplayAll);
             }

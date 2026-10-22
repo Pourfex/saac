@@ -18,7 +18,7 @@ namespace Logigram1Analysis
     using SAAC.Logigram1.Logic;
 
     /// <summary>
-    /// FullSpeed importer pipeline: FirstUnit interim stub + designated Outcome writer →
+    /// FullSpeed importer pipeline: FirstUnit (nodes 1–2) + designated Outcome writer →
     /// one analysis PsiStore partition + Dataset <c>.pds</c> (PERSIST / REPLAY locked decisions).
     /// </summary>
     public static class FirstUnitPipelineRunner
@@ -27,8 +27,8 @@ namespace Logigram1Analysis
         public const string AnalysisStoreName = "Logigram1Analysis";
 
         /// <summary>
-        /// Runs FirstUnit over the seven AD-7 topics, pipes evidence to the writer, persists
-        /// <see cref="LogigramState.StreamName"/> and <see cref="LogigramOutcome.StreamName"/>,
+        /// Runs FirstUnit over the seven AD-7 topics, pipes evidence and Gamma decisions to the writer,
+        /// persists <see cref="LogigramState.StreamName"/> and <see cref="LogigramOutcome.StreamName"/>,
         /// and saves the analysis Dataset at <paramref name="resolvedOutputPds"/>.
         /// </summary>
         /// <param name="dataset">Loaded input Dataset (topics already verified present).</param>
@@ -77,6 +77,7 @@ namespace Logigram1Analysis
                 var unit = new Logigram1FirstUnit(pipeline, scopes);
                 var writer = new LogigramOutcomeWriter(pipeline);
                 unit.EvidenceOut.PipeTo(writer.EvidenceIn);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
 
                 var importers = new Dictionary<string, PsiImporter>(StringComparer.Ordinal);
                 foreach (string topic in Logigram1UnitTopicRegistry.FirstUnitTopics)
@@ -96,7 +97,7 @@ namespace Logigram1Analysis
                 unit.StateOut.Write(LogigramState.StreamName, exporter);
                 writer.Out.Write(LogigramOutcome.StreamName, exporter);
 
-                // REPLAY = FullSpeed over FirstUnit + Battery-scoped stub (importer-driven).
+                // REPLAY = FullSpeed over FirstUnit + Battery-scoped derivation (importer-driven).
                 Exception pipelineError = null;
                 pipeline.PipelineExceptionNotHandled += (_, args) =>
                 {
@@ -189,7 +190,7 @@ namespace Logigram1Analysis
             string topicName,
             string streamName)
         {
-            // Catalogue types from PSI_EVENTS_README / Casper (payload ignored by interim stub).
+            // Catalogue types from PSI_EVENTS_README / Casper (payloads drive node 1–2 derivation).
             switch (topicName)
             {
                 case "Module status":
@@ -240,6 +241,7 @@ namespace Logigram1Analysis
                     Path.GetFileNameWithoutExtension(resolvedOutputPds),
                     stagingPds,
                     autoSave: true);
+
                 // SESSION_ATTR A: encode input store path/id (not hard-coded "Session").
                 Session session = dataset.AddEmptySession(FormatAnalysisSessionName(inputStorePath));
                 session.AddPartitionFromPsiStoreAsync(AnalysisStoreName, storeRoot).GetAwaiter().GetResult();

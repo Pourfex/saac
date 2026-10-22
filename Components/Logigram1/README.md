@@ -35,6 +35,6 @@ Discovery of Spawn→Finish segments lives in Analysis (`BatteryBoundaryDiscover
 
 - No Microsoft.Psi package refs or pipeline components (keeps `Logigram1.dll` safe beside Visualizations).
 - Designated outcome-writer Psi component: see `Components/Logigram1.Logic/`.
-- First Logic unit interim stub (`Logigram1.FirstUnit`) and Outcome/State persistence: see `Components/Logigram1.Logic/` and Analysis console (story 2.4). CSV / speech / second-store: later stories.
+- First Logic unit (`Logigram1.FirstUnit`, nodes 1–2) and Outcome/State persistence: see `Components/Logigram1.Logic/` and Analysis console. CSV / speech / second-store: later stories.
 
 Visualizations and future CSV depend on this contracts assembly only — never on `Logigram1.Logic`.

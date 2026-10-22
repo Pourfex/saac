@@ -18,6 +18,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Psi.Runtime" Version="0.19.100.1-beta" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Logigram1\Logigram1.csproj" />
