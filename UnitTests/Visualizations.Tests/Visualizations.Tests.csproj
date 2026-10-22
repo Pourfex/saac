@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Components\Visualizations\Visualizations.csproj" />
+    <ProjectReference Include="..\..\Components\Logigram1\Logigram1.csproj" />
   </ItemGroup>
 </Project>

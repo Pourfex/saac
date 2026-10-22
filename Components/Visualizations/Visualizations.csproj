@@ -35,6 +35,10 @@
       <Private>true</Private>
       <CopyLocalSatelliteAssemblies>true</CopyLocalSatelliteAssemblies>
     </ProjectReference>
+    <ProjectReference Include="..\Logigram1\Logigram1.csproj">
+      <Private>true</Private>
+      <CopyLocalSatelliteAssemblies>true</CopyLocalSatelliteAssemblies>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Reference Include="PresentationCore" />
@@ -63,13 +67,15 @@
       <ProjectReferenceDlls Include="$(SolutionDir)build\bin\**\GlobalHelpers.pdb" />
       <ProjectReferenceDlls Include="$(SolutionDir)build\bin\**\Groups.dll" />
       <ProjectReferenceDlls Include="$(SolutionDir)build\bin\**\Groups.pdb" />
+      <ProjectReferenceDlls Include="$(SolutionDir)build\bin\**\Logigram1.dll" />
+      <ProjectReferenceDlls Include="$(SolutionDir)build\bin\**\Logigram1.pdb" />
     </ItemGroup>
     <Copy SourceFiles="@(ProjectReferenceDlls)" DestinationFolder="$(OutputDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
     <!-- Copier toutes les dépendances transitives -->
     <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(OutputDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
     <!-- Log des fichiers copiés -->
     <Message Text="Copie des DLLs Azure Kinect vers $(OutputDir)" Importance="high" />
-    <Message Text="Copie des DLLs des projets Bodies, GlobalHelpers, Groups vers $(OutputDir)" Importance="high" />
+    <Message Text="Copie des DLLs des projets Bodies, GlobalHelpers, Groups, Logigram1 vers $(OutputDir)" Importance="high" />
     <Message Text="Copie de @(ProjectReferenceDlls-&gt;Count()) fichiers de projets référencés" Importance="high" />
     <Message Text="Copie de @(ReferenceCopyLocalPaths-&gt;Count()) dépendances transitives" Importance="high" />
   </Target>

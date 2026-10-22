@@ -7,6 +7,9 @@ This project contains visualizations for PsiStudio. It needs, as NuGet packages,
 Add `Visualizations.dll` to "Additional Assemblies" in the settings of PsiStudio and start PsiStudio again; then right-click a stream and choose the visualization.
 PsiStudio looks for the assemblies a plugin refers to in its own folder first: keep no copy of `Groups.dll`, of `Visualizations.dll` or of another SAAC assembly there.
 
+## Logigram State
+The **Logigram State** visualization object binds to the contracts type `SAAC.Logigram1.LogigramState` (from the `Logigram1` contracts assembly — no Logic unit DLL required). Discovery is type-driven; producers must write the sole AD-11 state stream named `Logigram1.State` (constant `LogigramState.StreamName`). When the playhead has no message, the shell shows an honest empty label (`no state`) rather than inventing regulation values.
+
 ## Visualizations of a group
 Two visualizations show a group of any number of participants from what the CollaborationIndices component stores: what the group did over the last window, and what it is doing at the instant of the cursor. They are distributed separately from this repository; section 8 of `docs/wiki/CollaborationIndices-Component.md` says which streams they read.
 
@@ -18,6 +21,7 @@ Two visualizations show a group of any number of participants from what the Coll
 * [Augmented Skeleton Visualization Object](src/VisualizationObjects/AugmentedSkeletonVisualizationObject.cs)
 * [Labeled Line2 D Visualization Object](src/VisualizationObjects/LabeledLine2DVisualizationObject.cs)
 * [Labeled Point2 D Visualization Object](src/VisualizationObjects/LabeledPoint2DVisualizationObject.cs)
+* [Logigram State Visualization Object](src/VisualizationObjects/LogigramStateVisualizationObject.cs)
 * [Position Orientation List Visualization Object](src/VisualizationObjects/PositionOrientationListVisualizationObject.cs)
 * [Position Orientation Visualization Object](src/VisualizationObjects/PositionOrientationVisualizationObject.cs)
 * [Simplified Body List Visualization Object](src/VisualizationObjects/SimplifiedBodyListVisualizationObject.cs)

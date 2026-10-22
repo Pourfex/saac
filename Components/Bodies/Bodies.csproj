@@ -18,6 +18,8 @@
   <ItemGroup>
     <PackageReference Include="Emgu.CV" Version="4.8.1.5350" />
     <PackageReference Include="Microsoft.Psi.AzureKinect.x64" Version="0.19.100.1-beta" />
+    <!-- Pin SAAC Runtime so AzureKinect/Calibration transitive refs do not NU1605-downgrade to public beta. -->
+    <PackageReference Include="Microsoft.Psi.Runtime" Version="0.19.100.1-beta-SAAC" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="nuitrack.net">
