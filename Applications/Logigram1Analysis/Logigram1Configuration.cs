@@ -7,20 +7,35 @@
 namespace Logigram1Analysis
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Security;
     using Newtonsoft.Json;
 
     /// <summary>
-    /// Slim JSON config for Logigram 1: selects the Casper <c>.pds</c> store path (not an Expe2 session folder).
+    /// Slim JSON config for Logigram 1: selects the Casper <c>.pds</c> store path (not an Expe2 session folder)
+    /// and which Logic units are enabled for required-topic checks.
     /// </summary>
     public sealed class Logigram1Configuration
     {
+        /// <summary>
+        /// Default stub-enabled unit id shipped in <c>logigram1.json</c> (story 2.2 topic check; unit body in 2.4).
+        /// </summary>
+        public const string DefaultFirstUnitId = Logigram1UnitTopicRegistry.FirstUnitId;
+
         /// <summary>
         /// Gets or sets the absolute or relative path to the Casper Dataset <c>.pds</c> file.
         /// </summary>
         [JsonProperty("StorePath")]
         public string StorePath { get; set; }
+
+        /// <summary>
+        /// Gets or sets Logic unit ids whose AD-7 source topics must be present in the store.
+        /// Empty or absent → substrate smoke only (no Logic-topic check). Shipped default includes
+        /// <see cref="DefaultFirstUnitId"/>.
+        /// </summary>
+        [JsonProperty("EnabledUnits")]
+        public List<string> EnabledUnits { get; set; }
 
         /// <summary>
         /// Loads configuration from a JSON file.
@@ -87,6 +102,13 @@ namespace Logigram1Analysis
             if (string.IsNullOrEmpty(configuration.StorePath))
             {
                 throw new ArgumentException($"Configuration \"{fullPath}\" is missing a non-empty StorePath.");
+            }
+
+            // Absent EnabledUnits → empty list (substrate only). Callers that want the stub unit
+            // ship it explicitly (see Applications/Logigram1Analysis/logigram1.json).
+            if (configuration.EnabledUnits == null)
+            {
+                configuration.EnabledUnits = new List<string>();
             }
 
             return configuration;

@@ -162,6 +162,54 @@ namespace Logigram1Analysis.Tests
             }
         }
 
+        /// <summary>
+        /// <c>--store</c> wins for path, but <c>EnabledUnits</c> from <c>--config</c> still drive Logic-topic checks.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithStoreOverride_StillAppliesConfigEnabledUnitsLogicTopicCheck()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-override-units-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string configOnlyPds = Path.Combine(folder, "ConfigOnly.pds");
+            string storeOverridePds = Path.Combine(folder, "StoreOverride.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                // Substrate-only store via --store; config EnabledUnits must still require FirstUnit topics.
+                CreatePreTestShapedDataset(folder, storeOverridePds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(configOnlyPds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--config", configPath, "--store", storeOverridePds },
+                    stdout,
+                    stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                string err = stderr.ToString();
+                foreach (string topic in Logigram1UnitTopicRegistry.FirstUnitTopics)
+                {
+                    StringAssert.Contains(err, "Required Logic topic missing: " + topic);
+                }
+
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Required Logic topics OK", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not claim Logic topics OK when gaps remain.");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("connectors loaded", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not print overall open success when Logic topic gaps remain.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
         /// <summary>Missing config file exits non-zero without opening a pipeline.</summary>
         [TestMethod]
         public void Run_WithMissingConfig_ReturnsNonZero()
@@ -549,15 +597,295 @@ namespace Logigram1Analysis.Tests
         }
 
         /// <summary>
+        /// All FirstUnit AD-7 topics present: stdout lists each as present; substrate OK; exit 0.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithFirstUnitTopicsPresent_ListsPresentAndReturnsZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-topics-ok-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "TopicsOk.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stdout.ToString(), "Required Logic topics OK:");
+                foreach (string topic in Logigram1UnitTopicRegistry.FirstUnitTopics)
+                {
+                    StringAssert.Contains(stdout.ToString(), topic + ": present");
+                }
+
+                Assert.IsFalse(
+                    stderr.ToString().IndexOf("Required Logic topic missing", StringComparison.Ordinal) >= 0,
+                    stderr.ToString());
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Multiple missing Logic topics: stderr lists every gap; exit non-zero; no success implying topics OK.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithMultipleLogicTopicGaps_ListsAllGapsAndReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-topics-gap-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "TopicsGap.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                // Substrate only — no Logic topic streams.
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                string err = stderr.ToString();
+                foreach (string topic in Logigram1UnitTopicRegistry.FirstUnitTopics)
+                {
+                    StringAssert.Contains(err, "Required Logic topic missing: " + topic);
+                }
+
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Required Logic topics OK", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not claim Logic topics OK when gaps remain.");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("connectors loaded", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not print overall open success when Logic topic gaps remain.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// AD-7 name mismatch: wrong-named streams only → counted missing (no aliases); exit non-zero.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithWrongNamedLogicTopicsOnly_CountsAsGaps()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-topics-alias-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "TopicsAlias.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                // Near-miss names that must not satisfy exact AD-7 Name lookup.
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: new[]
+                    {
+                        "ModuleStatus",
+                        "Porte1_ouverture",
+                        "M1SelectModule",
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing: Module status");
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing: Porte1 ouverture");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Required Logic topics OK", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Unknown enabled unit id → explicit registry error; exit non-zero.</summary>
+        [TestMethod]
+        public void Run_WithUnknownEnabledUnit_ReturnsNonZeroWithRegistryError()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-unknown-unit-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "UnknownUnit.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.DoesNotExist\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "Unknown enabled Logic unit id");
+                StringAssert.Contains(stderr.ToString(), "Logigram1.DoesNotExist");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("connectors loaded", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not print overall success for unknown unit.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Empty EnabledUnits → substrate smoke only; no Logic-topic section; exit 0.</summary>
+        [TestMethod]
+        public void Run_WithEmptyEnabledUnits_SkipsLogicTopicCheck()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-empty-units-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "EmptyUnits.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds) + ", \"EnabledUnits\": [] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stdout.ToString(), "required streams OK");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Required Logic topics", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Empty EnabledUnits must not emit a Logic-topic section.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Substrate fail remains enforced when Logic units are enabled (fail-fast before topic success).
+        /// </summary>
+        [TestMethod]
+        public void Run_WithEnabledUnitButSubstrateFail_ReturnsNonZeroWithoutTopicSuccess()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-substrate-fail-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "SubstrateFail.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: false, area1WithData: true);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "VideoRemoteApp/FullScreen");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Required Logic topics OK", StringComparison.OrdinalIgnoreCase) >= 0);
+                Assert.IsFalse(
+                    stderr.ToString().IndexOf("Required Logic topic missing", StringComparison.Ordinal) >= 0,
+                    "Prefer fail-fast on substrate; do not also list Logic gaps after substrate hard fail.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Registry exposes the seven AD-7 FirstUnit topic names (exact spelling).</summary>
+        [TestMethod]
+        public void UnitTopicRegistry_FirstUnit_HasSevenAd7Topics()
+        {
+            Assert.IsTrue(
+                Logigram1UnitTopicRegistry.TryGetRequiredTopics(
+                    Logigram1UnitTopicRegistry.FirstUnitId,
+                    out IReadOnlyList<string> topics));
+            Assert.AreEqual(7, topics.Count);
+            CollectionAssert.Contains(topics.ToList(), "Module status");
+            CollectionAssert.Contains(topics.ToList(), "Porte1 ouverture");
+            CollectionAssert.Contains(topics.ToList(), "Porte2 ouverture");
+            CollectionAssert.Contains(topics.ToList(), "M1-SelectModule");
+            CollectionAssert.Contains(topics.ToList(), "M2-SelectModule");
+            CollectionAssert.Contains(topics.ToList(), "M1-Validation");
+            CollectionAssert.Contains(topics.ToList(), "M2-Validation");
+        }
+
+        /// <summary>
         /// Builds a PreTest.081-shaped Dataset.
         /// </summary>
-        private static Dataset CreatePreTestShapedDataset(string folder, string pdsPath, bool fullScreenWithData, bool area1WithData)
+        /// <param name="folder">Temp folder for Psi stores and the <c>.pds</c>.</param>
+        /// <param name="pdsPath">Path of the Dataset file to create.</param>
+        /// <param name="fullScreenWithData">Whether FullScreen has recorded messages.</param>
+        /// <param name="area1WithData">Whether Area1 has recorded messages (presence-only in smoke).</param>
+        /// <param name="logicTopics">Optional AD-7 Logic topic stream names written into the Server store.</param>
+        private static Dataset CreatePreTestShapedDataset(
+            string folder,
+            string pdsPath,
+            bool fullScreenWithData,
+            bool area1WithData,
+            IEnumerable<string> logicTopics = null)
         {
             DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
 
             WriteStore(folder, "VideoRemoteApp", new[] { ("FullScreen", fullScreenWithData) }, start);
             WriteStore(folder, "WhisperStreaming", new[] { ("Audio_User_1", true), ("Audio_User_2", true) }, start);
-            WriteStore(folder, "Server", new[] { ("Area1", area1WithData), ("Area2", true) }, start);
+
+            var serverStreams = new List<(string Stream, bool WithData)>
+            {
+                ("Area1", area1WithData),
+                ("Area2", true),
+            };
+            if (logicTopics != null)
+            {
+                foreach (string topic in logicTopics)
+                {
+                    serverStreams.Add((topic, true));
+                }
+            }
+
+            WriteStore(folder, "Server", serverStreams, start);
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");

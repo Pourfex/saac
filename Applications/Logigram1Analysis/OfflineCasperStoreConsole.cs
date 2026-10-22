@@ -7,6 +7,7 @@
 namespace Logigram1Analysis
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Linq;
     using System.Security;
@@ -20,6 +21,7 @@ namespace Logigram1Analysis
     /// <summary>
     /// Opens a Casper <c>.pds</c> Dataset offline via <see cref="ReplayPipeline"/> and smoke-checks
     /// PreTest.081-shaped required streams without running a full replay.
+    /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -43,7 +45,7 @@ namespace Logigram1Analysis
 
         /// <summary>
         /// Runs the console: resolve store from <c>--store</c> or <c>--config</c>, log session identity,
-        /// open the Dataset, load connectors, smoke-check streams.
+        /// open the Dataset, load connectors, smoke-check substrate streams, then Logic-topic presence/gaps.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <param name="stdout">Optional stdout; defaults to <see cref="Console.Out"/>.</param>
@@ -63,9 +65,10 @@ namespace Logigram1Analysis
             EnsureCatalogueAssembliesLoaded();
 
             string storePath;
+            IReadOnlyList<string> enabledUnits;
             try
             {
-                storePath = ResolveStorePath(args);
+                ResolveRunInputs(args, out storePath, out enabledUnits);
             }
             catch (ArgumentException exception)
             {
@@ -119,11 +122,38 @@ namespace Logigram1Analysis
                     return 1;
                 }
 
+                // EPIC1_SMOKE: substrate first (fail-fast), then Logic-topic check when units enabled.
                 string smokeError = VerifyRequiredStreams(pipeline.Dataset);
                 if (smokeError != null)
                 {
                     stderr.WriteLine(smokeError);
                     return 1;
+                }
+
+                IReadOnlyList<string> requiredTopics = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                    enabledUnits,
+                    out string unknownUnitId);
+                if (unknownUnitId != null)
+                {
+                    stderr.WriteLine(
+                        $"Unknown enabled Logic unit id \"{unknownUnitId}\": no topic registry entry.");
+                    return 1;
+                }
+
+                if (requiredTopics.Count > 0)
+                {
+                    IReadOnlyList<string> missingTopics = FindMissingTopicsByExactName(
+                        pipeline.Dataset,
+                        requiredTopics);
+                    if (missingTopics.Count > 0)
+                    {
+                        foreach (string topic in missingTopics)
+                        {
+                            stderr.WriteLine($"Required Logic topic missing: {topic}");
+                        }
+
+                        return 1;
+                    }
                 }
 
                 stdout.WriteLine($"Opened dataset \"{fullPath}\" offline; connectors loaded; required streams OK (video/audio must have data; Area presence only).");
@@ -134,6 +164,15 @@ namespace Logigram1Analysis
                         ? FormatDataSignal(metadata)
                         : "present (empty catalogue)";
                     stdout.WriteLine($"  {partition}/{stream}: {signal}");
+                }
+
+                if (requiredTopics.Count > 0)
+                {
+                    stdout.WriteLine("Required Logic topics OK:");
+                    foreach (string topic in requiredTopics)
+                    {
+                        stdout.WriteLine($"  {topic}: present");
+                    }
                 }
 
                 return 0;
@@ -157,23 +196,29 @@ namespace Logigram1Analysis
         /// <returns>The unresolved store path string (may not exist yet).</returns>
         public static string ResolveStorePath(string[] args)
         {
+            ResolveRunInputs(args, out string storePath, out _);
+            return storePath;
+        }
+
+        /// <summary>
+        /// Resolves store path and enabled Logic unit ids from CLI args.
+        /// <c>--store</c> wins for the path; <c>EnabledUnits</c> come from <c>--config</c> when present
+        /// (even if <c>--store</c> overrides <c>StorePath</c>). No config → empty enabled list (substrate only).
+        /// </summary>
+        /// <param name="args">Command-line arguments.</param>
+        /// <param name="storePath">Unresolved store path (may not exist yet).</param>
+        /// <param name="enabledUnits">Unit ids for Logic-topic checks (never null).</param>
+        public static void ResolveRunInputs(string[] args, out string storePath, out IReadOnlyList<string> enabledUnits)
+        {
             if (args == null || args.Length == 0)
             {
                 throw new ArgumentException("Missing required --config or --store argument.");
             }
 
             string storeFlag = TryGetNamedArgument(args, "--store");
-            if (storeFlag != null)
-            {
-                if (string.IsNullOrWhiteSpace(storeFlag))
-                {
-                    throw new ArgumentException("Missing value for --store <path.pds>.");
-                }
-
-                return storeFlag;
-            }
-
             string configFlag = TryGetNamedArgument(args, "--config");
+
+            Logigram1Configuration configuration = null;
             if (configFlag != null)
             {
                 if (string.IsNullOrWhiteSpace(configFlag))
@@ -181,7 +226,28 @@ namespace Logigram1Analysis
                     throw new ArgumentException("Missing value for --config <file.json>.");
                 }
 
-                return Logigram1Configuration.Load(configFlag).StorePath;
+                configuration = Logigram1Configuration.Load(configFlag);
+            }
+
+            enabledUnits = configuration?.EnabledUnits != null
+                ? (IReadOnlyList<string>)configuration.EnabledUnits
+                : Array.Empty<string>();
+
+            if (storeFlag != null)
+            {
+                if (string.IsNullOrWhiteSpace(storeFlag))
+                {
+                    throw new ArgumentException("Missing value for --store <path.pds>.");
+                }
+
+                storePath = storeFlag;
+                return;
+            }
+
+            if (configuration != null)
+            {
+                storePath = configuration.StorePath;
+                return;
             }
 
             throw new ArgumentException("Missing required --config or --store argument.");
@@ -359,6 +425,73 @@ namespace Logigram1Analysis
             }
 
             return "unknown data signal";
+        }
+
+        /// <summary>
+        /// STREAM_LOOKUP A: a required Logic topic is present when any Dataset partition has a stream
+        /// whose <see cref="IStreamMetadata.Name"/> equals the AD-7 topic string (ordinal, no aliases).
+        /// </summary>
+        /// <param name="dataset">Loaded Psi Dataset.</param>
+        /// <param name="topicName">Exact AD-7 topic / stream name.</param>
+        /// <returns>Matching metadata, or null if absent.</returns>
+        public static IStreamMetadata FindStreamByExactName(Dataset dataset, string topicName)
+        {
+            if (dataset == null || string.IsNullOrEmpty(topicName))
+            {
+                return null;
+            }
+
+            foreach (Session session in dataset.Sessions)
+            {
+                foreach (IPartition partition in session.Partitions)
+                {
+                    if (partition.AvailableStreams == null)
+                    {
+                        continue;
+                    }
+
+                    IStreamMetadata match = partition.AvailableStreams
+                        .FirstOrDefault(stream => string.Equals(stream.Name, topicName, StringComparison.Ordinal));
+                    if (match != null)
+                    {
+                        return match;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns every required topic whose exact stream name is absent from the Dataset (GAP_POLICY A).
+        /// </summary>
+        /// <param name="dataset">Loaded Psi Dataset.</param>
+        /// <param name="requiredTopics">AD-7 topic names to look up.</param>
+        /// <returns>Missing topics in the same order as <paramref name="requiredTopics"/>; empty when all present.</returns>
+        public static IReadOnlyList<string> FindMissingTopicsByExactName(
+            Dataset dataset,
+            IEnumerable<string> requiredTopics)
+        {
+            var missing = new List<string>();
+            if (requiredTopics == null)
+            {
+                return missing;
+            }
+
+            foreach (string topic in requiredTopics)
+            {
+                if (string.IsNullOrEmpty(topic))
+                {
+                    continue;
+                }
+
+                if (FindStreamByExactName(dataset, topic) == null)
+                {
+                    missing.Add(topic);
+                }
+            }
+
+            return missing;
         }
 
         /// <summary>
