@@ -14,6 +14,7 @@ namespace Logigram1Analysis.Tests
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using SAAC.PsiFormats;
 
     /// <summary>
     /// Covers the I/O matrix for <see cref="OfflineCasperStoreConsole"/> including config / store resolution,
@@ -119,6 +120,8 @@ namespace Logigram1Analysis.Tests
 
                 Assert.AreEqual(0, exit, stderr.ToString());
                 StringAssert.Contains(stdout.ToString(), "connectors loaded");
+                StringAssert.Contains(stdout.ToString(), "Battery segments");
+                StringAssert.Contains(stdout.ToString(), "BatteryId=1");
                 AssertSessionIdentity(stdout.ToString(), pds);
             }
             finally
@@ -860,12 +863,21 @@ namespace Logigram1Analysis.Tests
         /// <param name="fullScreenWithData">Whether FullScreen has recorded messages.</param>
         /// <param name="area1WithData">Whether Area1 has recorded messages (presence-only in smoke).</param>
         /// <param name="logicTopics">Optional AD-7 Logic topic stream names written into the Server store.</param>
+        /// <param name="includeBatteryBoundaries">
+        /// When true (default), writes one closed Spawn→Finish segment so AD-6 discovery succeeds.
+        /// When false, omits BatterySpawn/BatteryFinish (missing-stream fail cases).
+        /// </param>
+        /// <param name="batterySegments">Optional explicit segments; ignored when <paramref name="includeBatteryBoundaries"/> is false.</param>
+        /// <param name="emptyBatteryStreams">When true with include, write present-but-empty Battery streams (zero-segment fail).</param>
         private static Dataset CreatePreTestShapedDataset(
             string folder,
             string pdsPath,
             bool fullScreenWithData,
             bool area1WithData,
-            IEnumerable<string> logicTopics = null)
+            IEnumerable<string> logicTopics = null,
+            bool includeBatteryBoundaries = true,
+            IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> batterySegments = null,
+            bool emptyBatteryStreams = false)
         {
             DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
 
@@ -885,7 +897,22 @@ namespace Logigram1Analysis.Tests
                 }
             }
 
-            WriteStore(folder, "Server", serverStreams, start);
+            IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> segments = null;
+            if (includeBatteryBoundaries && !emptyBatteryStreams)
+            {
+                segments = batterySegments ?? new List<(int, DateTime, DateTime)>
+                {
+                    (1, start, start.AddSeconds(1)),
+                };
+            }
+
+            WriteServerStore(
+                folder,
+                "Server",
+                serverStreams,
+                start,
+                batterySegments: segments,
+                emptyBatteryStreams: includeBatteryBoundaries && emptyBatteryStreams);
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");
@@ -908,7 +935,13 @@ namespace Logigram1Analysis.Tests
             // Stores live under a shared root; store names remain VideoRemoteApp / WhisperStreaming / Server.
             WriteStore(folder, "VideoRemoteApp", new[] { ("FullScreen", true) }, start, storeRoot: folder);
             WriteStore(folder, "WhisperStreaming", new[] { ("Audio_User_1", true), ("Audio_User_2", true) }, start, storeRoot: folder);
-            WriteStore(folder, "Server", new[] { ("Area1", true), ("Area2", true) }, start, storeRoot: folder);
+            WriteServerStore(
+                folder,
+                "Server",
+                new[] { ("Area1", true), ("Area2", true) },
+                start,
+                storeRoot: folder,
+                batterySegments: new List<(int, DateTime, DateTime)> { (1, start, start.AddSeconds(1)) });
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");
@@ -938,6 +971,53 @@ namespace Logigram1Analysis.Tests
                         ? new[] { (1, start) }
                         : Array.Empty<(int, DateTime)>();
                     Generators.Sequence(pipeline, values).Write(streamName, store);
+                }
+
+                pipeline.Run();
+            }
+        }
+
+        /// <summary>
+        /// Writes the Server store including optional BatterySpawn / BatteryFinish boundary streams.
+        /// </summary>
+        private static void WriteServerStore(
+            string folder,
+            string storeName,
+            IEnumerable<(string Stream, bool WithData)> streams,
+            DateTime start,
+            string storeRoot = null,
+            IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> batterySegments = null,
+            bool emptyBatteryStreams = false)
+        {
+            string storePath = storeRoot ?? Path.Combine(folder, storeName);
+            Directory.CreateDirectory(storePath);
+
+            using (Pipeline pipeline = Pipeline.Create("Logigram1AnalysisWrite-" + storeName))
+            {
+                PsiExporter store = PsiStore.Create(pipeline, storeName, storePath);
+                foreach ((string streamName, bool withData) in streams)
+                {
+                    IEnumerable<(int, DateTime)> values = withData
+                        ? new[] { (1, start) }
+                        : Array.Empty<(int, DateTime)>();
+                    Generators.Sequence(pipeline, values).Write(streamName, store);
+                }
+
+                if (batterySegments != null || emptyBatteryStreams)
+                {
+                    var spawnEvents = new List<(PsiBatteryEvent, DateTime)>();
+                    var finishEvents = new List<(PsiBatteryFinish, DateTime)>();
+                    if (batterySegments != null)
+                    {
+                        foreach ((int batteryId, DateTime spawn, DateTime finish) in batterySegments)
+                        {
+                            spawnEvents.Add((new PsiBatteryEvent(batteryId, 0, 0, false), spawn));
+                            finishEvents.Add((default(PsiBatteryFinish), finish));
+                        }
+                    }
+
+                    Generators.Sequence(pipeline, spawnEvents).Write(BatteryBoundaryDiscovery.SpawnStreamName, store);
+                    Generators.Sequence(pipeline, finishEvents).Write(BatteryBoundaryDiscovery.FinishStreamName, store);
                 }
 
                 pipeline.Run();

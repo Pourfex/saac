@@ -7,9 +7,9 @@
 namespace SAAC.Logigram1
 {
     /// <summary>
-    /// Session-scoped Logigram 1 progress / position state message (AD-11).
+    /// Battery-scoped Logigram 1 progress / position state message (AD-11 / AD-6).
     /// Regulation terminals live on <see cref="LogigramOutcome"/> / <c>Logigram1.Outcome</c>, not here.
-    /// No Battery id/index fields until story 2.3 / OQ3.
+    /// <see cref="BatteryId"/> follows the sole Spawn→Finish boundary rule (replaces AD-12 session-only envelopes).
     /// </summary>
     public class LogigramState
     {
@@ -19,8 +19,13 @@ namespace SAAC.Logigram1
         public const string StreamName = "Logigram1.State";
 
         /// <summary>
-        /// Gets or sets the display/status string for the current session state.
+        /// Gets or sets the display/status string for the current Battery-scoped state.
         /// </summary>
         public string Status { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the canonical Battery identity from <c>BatterySpawn.BatteryId</c> (AD-6).
+        /// </summary>
+        public int BatteryId { get; set; }
     }
 }

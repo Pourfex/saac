@@ -142,6 +142,39 @@ namespace Logigram1.Tests
 
             Assert.AreEqual(1, outcomes.Count);
             Assert.AreEqual(LogigramRegulation.Gamma, outcomes[0].Regulation);
+            Assert.AreEqual(0, outcomes[0].BatteryId);
+        }
+
+        /// <summary>
+        /// Scoped regulation decision stamps <see cref="LogigramOutcome.BatteryId"/> on the emitted Outcome.
+        /// </summary>
+        [TestMethod]
+        public void Writer_RegulationDecisionWithBattery_StampsBatteryIdOnOutcome()
+        {
+            var outcomes = new List<LogigramOutcome>();
+            DateTime start = new DateTime(2026, 10, 22, 0, 0, 0, DateTimeKind.Utc);
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.Writer_RegulationDecisionWithBattery_StampsBatteryIdOnOutcome)))
+            {
+                var writer = new LogigramOutcomeWriter(pipeline);
+                writer.Out.Do(outcome => outcomes.Add(CloneOutcome(outcome)));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<((LogigramRegulation, int), DateTime)>
+                        {
+                            ((LogigramRegulation.Alpha, 7), start),
+                        })
+                    .PipeTo(writer.RegulationDecisionWithBatteryIn);
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(1, writer.OutcomeEmitCount);
+            }
+
+            Assert.AreEqual(1, outcomes.Count);
+            Assert.AreEqual(LogigramRegulation.Alpha, outcomes[0].Regulation);
+            Assert.AreEqual(7, outcomes[0].BatteryId);
         }
 
         /// <summary>
@@ -226,7 +259,11 @@ namespace Logigram1.Tests
 
         private static LogigramOutcome CloneOutcome(LogigramOutcome outcome)
         {
-            return new LogigramOutcome { Regulation = outcome.Regulation };
+            return new LogigramOutcome
+            {
+                Regulation = outcome.Regulation,
+                BatteryId = outcome.BatteryId,
+            };
         }
     }
 }

@@ -72,12 +72,21 @@ namespace Visualizations.Tests
         [TestMethod]
         public void FormatDisplayText_WithStatus_ReturnsStatusWithoutInventingRegulation()
         {
-            var state = new LogigramState { Status = "placeholder-status" };
+            var state = new LogigramState { Status = "placeholder-status", BatteryId = 3 };
 
-            Assert.AreEqual("placeholder-status", LogigramStateVisualizationObject.FormatDisplayText(state));
             Assert.AreEqual(
-                string.Empty,
+                "placeholder-status BatteryId=3",
+                LogigramStateVisualizationObject.FormatDisplayText(state));
+            Assert.AreEqual(
+                " BatteryId=0",
                 LogigramStateVisualizationObject.FormatDisplayText(new LogigramState { Status = string.Empty }));
+        }
+
+        [TestMethod]
+        public void FormatDisplayText_IncludesBatteryId()
+        {
+            var state = new LogigramState { Status = "at-node", BatteryId = 12 };
+            StringAssert.Contains(LogigramStateVisualizationObject.FormatDisplayText(state), "BatteryId=12");
         }
 
         [TestMethod]
@@ -98,10 +107,10 @@ namespace Visualizations.Tests
             Assert.AreEqual(LogigramStateVisualizationObject.EmptyDisplayText, visualization.DisplayText);
 
             DateTime now = DateTime.UtcNow;
-            var state = new LogigramState { Status = "placeholder-status" };
+            var state = new LogigramState { Status = "placeholder-status", BatteryId = 5 };
             visualization.SetCurrentValue(new Message<LogigramState>(state, now, now, 0, 0));
 
-            Assert.AreEqual("placeholder-status", visualization.DisplayText);
+            Assert.AreEqual("placeholder-status BatteryId=5", visualization.DisplayText);
             Assert.IsTrue(raised.Contains(nameof(LogigramStateVisualizationObject.DisplayText)));
 
             raised.Clear();

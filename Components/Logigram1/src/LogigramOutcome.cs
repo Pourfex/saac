@@ -7,9 +7,9 @@
 namespace SAAC.Logigram1
 {
     /// <summary>
-    /// Session-scoped Logigram 1 terminal / regulation outcome message (OUTCOME_SHAPE B).
+    /// Battery-scoped Logigram 1 terminal / regulation outcome message (OUTCOME_SHAPE B).
     /// Only the designated outcome writer may produce the <see cref="StreamName"/> stream (AD-10).
-    /// No Battery id/index fields until story 2.3 / OQ3.
+    /// <see cref="BatteryId"/> follows the sole Spawn→Finish boundary rule (AD-6; replaces AD-12).
     /// </summary>
     public class LogigramOutcome
     {
@@ -23,5 +23,10 @@ namespace SAAC.Logigram1
         /// Null means absent / not yet classified — default construction must not invent Alpha.
         /// </summary>
         public LogigramRegulation? Regulation { get; set; }
+
+        /// <summary>
+        /// Gets or sets the canonical Battery identity from <c>BatterySpawn.BatteryId</c> when a Battery scope is supplied (AD-6).
+        /// </summary>
+        public int BatteryId { get; set; }
     }
 }

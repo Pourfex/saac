@@ -12,10 +12,29 @@ Contracts-only surface for Logigram 1 (Psi-free / Additional-Assemblies-safe).
 
 Regulation alphabet (typed on `LogigramRegulation`): **Alpha | Beta | Gamma | N/A | Apprentissage**.
 
+## Battery identity (AD-6 / BOUNDARY_RULE)
+
+Sole scheme for Logigram state, outcomes, evidence, and viz (replaces AD-12 session-only envelopes):
+
+- **BOUNDARY_RULE = Spawn→Finish:** Start = each `BatterySpawn` originating time; End = paired `BatteryFinish` originating time.
+- **JOIN_KEY = LIFO stack:** On Spawn, push `BatteryId`; on Finish, pop the most recent still-open id and close that segment. Canonical `BatteryId` (`int`) always comes from `BatterySpawn.BatteryId` (Finish carries none in PreTest.081 / Unity).
+- Fail explicitly if Finish arrives with an empty stack, if any Spawn remains open at session end, if required streams are missing, or if zero segments are discovered — never invent keys or silently merge Battery N with Battery M.
+- Envelope field: `int BatteryId` only — no `BatteryIndex` / string fork.
+
+Store payload types (Casper / Unity exporters, despite older string-topic wording elsewhere):
+
+| Topic | Catalogue type |
+|-------|----------------|
+| `BatterySpawn`, `BatteryRegulatedTime`, `BatteryFire` | `PsiBatteryEvent` |
+| `Batteries` | `PsiBatterie` |
+| `BatteryFinish` | `PsiBatteryFinish` |
+
+Discovery of Spawn→Finish segments lives in Analysis (`BatteryBoundaryDiscovery`), not in this contracts assembly.
+
 ## What does not live here
 
 - No Microsoft.Psi package refs or pipeline components (keeps `Logigram1.dll` safe beside Visualizations).
-- No Battery id/index fields yet (AD-12 until story 2.3).
 - Designated outcome-writer Psi component: see `Components/Logigram1.Logic/`.
+- First Logic unit, Outcome/State persistence, and CSV: deferred to story 2.4.
 
 Visualizations and future CSV depend on this contracts assembly only — never on `Logigram1.Logic`.

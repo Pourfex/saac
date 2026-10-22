@@ -68,31 +68,47 @@ namespace Logigram1.Tests
             Assert.AreEqual("Apprentissage", LogigramRegulationLabels.ToContractLabel(LogigramRegulation.Apprentissage));
         }
 
-        /// <summary>State remains progress-only: no regulation or Battery fields.</summary>
+        /// <summary>State is progress + BatteryId (AD-6); no regulation or BatteryIndex fork.</summary>
         [TestMethod]
-        public void LogigramState_HasNoRegulationOrBatteryMembers()
+        public void LogigramState_RequiresBatteryId_NoRegulationOrBatteryIndex()
         {
             var names = typeof(LogigramState).GetProperties()
                 .Select(property => property.Name)
                 .ToList();
 
             CollectionAssert.DoesNotContain(names, "Regulation");
-            CollectionAssert.DoesNotContain(names, "BatteryId");
-            CollectionAssert.DoesNotContain(names, "BatteryIndex");
             Assert.IsTrue(names.Contains("Status"));
+            Assert.IsTrue(names.Contains("BatteryId"));
+            CollectionAssert.DoesNotContain(names, "BatteryIndex");
+            Assert.AreEqual(typeof(int), typeof(LogigramState).GetProperty(nameof(LogigramState.BatteryId)).PropertyType);
         }
 
-        /// <summary>Outcome carries regulation only; no Battery yet.</summary>
+        /// <summary>Outcome carries regulation and BatteryId; no BatteryIndex fork.</summary>
         [TestMethod]
-        public void LogigramOutcome_CarriesRegulationOnly_NoBattery()
+        public void LogigramOutcome_RequiresBatteryId_NoBatteryIndex()
         {
             var names = typeof(LogigramOutcome).GetProperties()
                 .Select(property => property.Name)
                 .ToList();
 
             Assert.IsTrue(names.Contains("Regulation"));
-            CollectionAssert.DoesNotContain(names, "BatteryId");
+            Assert.IsTrue(names.Contains("BatteryId"));
             CollectionAssert.DoesNotContain(names, "BatteryIndex");
+            Assert.AreEqual(typeof(int), typeof(LogigramOutcome).GetProperty(nameof(LogigramOutcome.BatteryId)).PropertyType);
+        }
+
+        /// <summary>Evidence carries BatteryId (AD-6); no BatteryIndex fork.</summary>
+        [TestMethod]
+        public void LogigramEvidence_RequiresBatteryId_NoBatteryIndex()
+        {
+            var names = typeof(LogigramEvidence).GetProperties()
+                .Select(property => property.Name)
+                .ToList();
+
+            Assert.IsTrue(names.Contains("NodeOrPathId"));
+            Assert.IsTrue(names.Contains("BatteryId"));
+            CollectionAssert.DoesNotContain(names, "BatteryIndex");
+            Assert.AreEqual(typeof(int), typeof(LogigramEvidence).GetProperty(nameof(LogigramEvidence.BatteryId)).PropertyType);
         }
 
         /// <summary>Default Outcome must not invent Alpha via non-nullable enum default.</summary>

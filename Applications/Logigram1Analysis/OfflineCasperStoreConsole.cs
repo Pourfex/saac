@@ -22,6 +22,7 @@ namespace Logigram1Analysis
     /// Opens a Casper <c>.pds</c> Dataset offline via <see cref="ReplayPipeline"/> and smoke-checks
     /// PreTest.081-shaped required streams without running a full replay.
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
+    /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -173,6 +174,24 @@ namespace Logigram1Analysis
                     {
                         stdout.WriteLine($"  {topic}: present");
                     }
+                }
+
+                // AD-6: after substrate + Logic-topic checks, discover Battery scopes or fail explicitly.
+                if (!BatteryBoundaryDiscovery.TryDiscoverFromDataset(
+                        pipeline.Dataset,
+                        FindStreamByExactName,
+                        out IReadOnlyList<BatterySegment> batterySegments,
+                        out string batteryError))
+                {
+                    stderr.WriteLine(batteryError ?? "Battery boundary discovery failed.");
+                    return 1;
+                }
+
+                stdout.WriteLine($"Battery segments ({batterySegments.Count}) [Spawn→Finish LIFO]:");
+                foreach (BatterySegment segment in batterySegments)
+                {
+                    stdout.WriteLine(
+                        $"  BatteryId={segment.BatteryId} start={segment.StartOriginatingTime:o} end={segment.EndOriginatingTime:o}");
                 }
 
                 return 0;

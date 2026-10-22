@@ -40,9 +40,10 @@ namespace SAAC.Visualizations
 
         /// <summary>
         /// Formats display text for a cursor value. Null (missing/empty at cursor) yields an honest empty label — never a fabricated regulation value.
+        /// When a message is present, includes <see cref="LogigramState.BatteryId"/> (AD-6).
         /// </summary>
         /// <param name="state">The state at the cursor, or null when unavailable.</param>
-        /// <returns>Status text, or <see cref="EmptyDisplayText"/> when <paramref name="state"/> is null.</returns>
+        /// <returns>Status text with BatteryId, or <see cref="EmptyDisplayText"/> when <paramref name="state"/> is null.</returns>
         public static string FormatDisplayText(LogigramState? state)
         {
             if (state == null)
@@ -50,7 +51,8 @@ namespace SAAC.Visualizations
                 return EmptyDisplayText;
             }
 
-            return state.Status ?? string.Empty;
+            string status = state.Status ?? string.Empty;
+            return $"{status} BatteryId={state.BatteryId}";
         }
 
         /// <inheritdoc/>

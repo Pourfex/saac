@@ -7,9 +7,10 @@
 namespace SAAC.Logigram1
 {
     /// <summary>
-    /// Minimal path/node evidence stub for future Logic units (AD-10).
+    /// Minimal path/node evidence stub for future Logic units (AD-10 / AD-6).
     /// Evidence producers must not write <see cref="LogigramOutcome.StreamName"/>; only the
     /// designated outcome writer emits regulation terminals.
+    /// <see cref="BatteryId"/> follows the sole Spawn→Finish boundary rule.
     /// </summary>
     public class LogigramEvidence
     {
@@ -22,5 +23,10 @@ namespace SAAC.Logigram1
         /// Gets or sets a path or node identifier observed by a Logic unit.
         /// </summary>
         public string NodeOrPathId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the canonical Battery identity from <c>BatterySpawn.BatteryId</c> (AD-6).
+        /// </summary>
+        public int BatteryId { get; set; }
     }
 }
