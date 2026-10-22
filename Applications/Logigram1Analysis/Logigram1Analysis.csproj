@@ -14,9 +14,14 @@
     <!-- Needed so DatasetLoader can Type.GetType Casper catalogue streams (Audio + PsiFormats + Imaging). -->
     <PackageReference Include="Microsoft.Psi.Audio" Version="0.19.100.1-beta" />
     <PackageReference Include="Microsoft.Psi.Imaging" Version="0.19.100.1-beta" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Components\PipelineServices\PipelineServices.csproj" />
     <ProjectReference Include="..\..\Components\PsiFormats\PsiFormats.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Default develop config (PreTest.081 / Casper5); copy beside the exe and pass via config flag. -->
+    <None Include="logigram1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

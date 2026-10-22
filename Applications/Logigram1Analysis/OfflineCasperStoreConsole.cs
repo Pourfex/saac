@@ -24,9 +24,9 @@ namespace Logigram1Analysis
     public static class OfflineCasperStoreConsole
     {
         /// <summary>
-        /// Usage line printed when <c>--store</c> is missing or empty.
+        /// Usage line printed when neither <c>--config</c> nor <c>--store</c> is supplied (or args are invalid).
         /// </summary>
-        public const string Usage = "Usage: Logigram1Analysis --store <path.pds>";
+        public const string Usage = "Usage: Logigram1Analysis --config <file.json> [--store <path.pds>] | --store <path.pds>";
 
         /// <summary>
         /// Required partition/stream pairs matching PreTest.081 in PsiStudio.
@@ -42,7 +42,8 @@ namespace Logigram1Analysis
         };
 
         /// <summary>
-        /// Runs the console: parse <c>--store</c>, open the Dataset, load connectors, smoke-check streams.
+        /// Runs the console: resolve store from <c>--store</c> or <c>--config</c>, log session identity,
+        /// open the Dataset, load connectors, smoke-check streams.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <param name="stdout">Optional stdout; defaults to <see cref="Console.Out"/>.</param>
@@ -64,7 +65,7 @@ namespace Logigram1Analysis
             string storePath;
             try
             {
-                storePath = ParseStoreArgument(args);
+                storePath = ResolveStorePath(args);
             }
             catch (ArgumentException exception)
             {
@@ -72,6 +73,10 @@ namespace Logigram1Analysis
                 stderr.WriteLine(Usage);
                 return 1;
             }
+
+            // Attribution after path resolve (success or fail): full path + .pds filename.
+            string identityPath = TryGetFullPath(storePath) ?? storePath;
+            WriteSessionIdentity(stdout, identityPath);
 
             string fullPath;
             try
@@ -145,7 +150,45 @@ namespace Logigram1Analysis
         }
 
         /// <summary>
-        /// Parses the named <c>--store</c> flag.
+        /// Resolves the Casper <c>.pds</c> path: <c>--store</c> wins when present; otherwise
+        /// <c>StorePath</c> from required <c>--config</c>. Zero args / neither flag → error.
+        /// </summary>
+        /// <param name="args">Command-line arguments.</param>
+        /// <returns>The unresolved store path string (may not exist yet).</returns>
+        public static string ResolveStorePath(string[] args)
+        {
+            if (args == null || args.Length == 0)
+            {
+                throw new ArgumentException("Missing required --config or --store argument.");
+            }
+
+            string storeFlag = TryGetNamedArgument(args, "--store");
+            if (storeFlag != null)
+            {
+                if (string.IsNullOrWhiteSpace(storeFlag))
+                {
+                    throw new ArgumentException("Missing value for --store <path.pds>.");
+                }
+
+                return storeFlag;
+            }
+
+            string configFlag = TryGetNamedArgument(args, "--config");
+            if (configFlag != null)
+            {
+                if (string.IsNullOrWhiteSpace(configFlag))
+                {
+                    throw new ArgumentException("Missing value for --config <file.json>.");
+                }
+
+                return Logigram1Configuration.Load(configFlag).StorePath;
+            }
+
+            throw new ArgumentException("Missing required --config or --store argument.");
+        }
+
+        /// <summary>
+        /// Parses the named <c>--store</c> flag (Story 1.1 compatibility). Prefer <see cref="ResolveStorePath"/> for full resolution.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <returns>The store path value.</returns>
@@ -156,20 +199,35 @@ namespace Logigram1Analysis
                 throw new ArgumentException("Missing required --store argument.");
             }
 
-            for (int i = 0; i < args.Length; i++)
+            string value = TryGetNamedArgument(args, "--store");
+            if (value == null)
             {
-                if (string.Equals(args[i], "--store", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (i + 1 >= args.Length || string.IsNullOrWhiteSpace(args[i + 1]) || args[i + 1].StartsWith("--", StringComparison.Ordinal))
-                    {
-                        throw new ArgumentException("Missing value for --store <path.pds>.");
-                    }
-
-                    return args[i + 1];
-                }
+                throw new ArgumentException("Missing required --store argument.");
             }
 
-            throw new ArgumentException("Missing required --store argument.");
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException("Missing value for --store <path.pds>.");
+            }
+
+            return value;
+        }
+
+        /// <summary>
+        /// Writes session identity for attribution: full store path and dataset id (<c>.pds</c> filename).
+        /// </summary>
+        /// <param name="writer">Output writer (typically stdout).</param>
+        /// <param name="storePath">Resolved store path (preferably absolute).</param>
+        public static void WriteSessionIdentity(TextWriter writer, string storePath)
+        {
+            if (writer == null)
+            {
+                return;
+            }
+
+            string path = storePath ?? string.Empty;
+            string id = TryGetFileName(path) ?? path;
+            writer.WriteLine($"Session identity: path={path} id={id}");
         }
 
         /// <summary>
@@ -380,6 +438,69 @@ namespace Logigram1Analysis
             _ = typeof(PsiGazeObjectEvent);
             _ = typeof(PsiBatteryFinish);
             _ = typeof(PsiTV);
+        }
+
+        /// <summary>
+        /// Returns the value after <paramref name="name"/>, empty string if the flag is present without a value,
+        /// or null if the flag is absent.
+        /// </summary>
+        private static string TryGetNamedArgument(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (i + 1 >= args.Length
+                    || args[i + 1] == null
+                    || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                {
+                    return string.Empty;
+                }
+
+                return args[i + 1];
+            }
+
+            return null;
+        }
+
+        private static string TryGetFullPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException
+                || exception is PathTooLongException
+                || exception is NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        private static string TryGetFileName(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFileName(path);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
     }
 }

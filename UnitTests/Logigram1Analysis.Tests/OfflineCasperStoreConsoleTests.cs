@@ -16,13 +16,14 @@ namespace Logigram1Analysis.Tests
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 
     /// <summary>
-    /// Covers the I/O matrix for <see cref="OfflineCasperStoreConsole"/> including connector-load failure,
-    /// <see cref="OfflineCasperStoreConsole.HasRecordedData"/> alternates, and StoreName partition fallback.
+    /// Covers the I/O matrix for <see cref="OfflineCasperStoreConsole"/> including config / store resolution,
+    /// session identity, connector-load failure, <see cref="OfflineCasperStoreConsole.HasRecordedData"/> alternates,
+    /// and StoreName partition fallback.
     /// </summary>
     [TestClass]
     public class OfflineCasperStoreConsoleTests
     {
-        /// <summary>Missing <c>--store</c> prints usage and exits non-zero.</summary>
+        /// <summary>Zero args prints usage mentioning <c>--config</c> / <c>--store</c> and exits non-zero (no auto-load).</summary>
         [TestMethod]
         public void Run_WithoutStoreArgument_ReturnsNonZeroAndPrintsUsage()
         {
@@ -31,6 +32,7 @@ namespace Logigram1Analysis.Tests
 
             Assert.AreNotEqual(0, exit);
             StringAssert.Contains(stderr.ToString(), "--store");
+            StringAssert.Contains(stderr.ToString(), "--config");
         }
 
         /// <summary>Empty <c>--store</c> value prints usage and exits non-zero.</summary>
@@ -44,18 +46,189 @@ namespace Logigram1Analysis.Tests
             StringAssert.Contains(stderr.ToString(), "--store");
         }
 
-        /// <summary>Missing <c>.pds</c> path names the file and does not create an empty Dataset.</summary>
+        /// <summary>
+        /// Empty <c>--store</c> beside a valid <c>--config</c> fails as missing store value and does not open the config store.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithEmptyStoreBesideValidConfig_ReturnsNonZeroWithoutOpeningConfigStore()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-emptystore-config-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "FromConfig.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+                File.WriteAllText(configPath, "{ \"StorePath\": " + JsonString(pds) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--store", "--config", configPath },
+                    stdout,
+                    stderr);
+
+                Assert.AreNotEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stderr.ToString(), "Missing value for --store");
+                StringAssert.Contains(stderr.ToString(), OfflineCasperStoreConsole.Usage);
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("connectors loaded", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not open the config store when --store has no value.");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("FromConfig.pds", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Must not log identity for the config StorePath when --store is empty.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Missing <c>.pds</c> path names the file, logs session identity, and does not create an empty Dataset.</summary>
         [TestMethod]
         public void Run_WithMissingFile_ReturnsNonZeroAndNamesPath()
         {
             string missing = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-missing-" + Guid.NewGuid().ToString("N") + ".pds");
+            var stdout = new StringWriter();
             var stderr = new StringWriter();
 
-            int exit = OfflineCasperStoreConsole.Run(new[] { "--store", missing }, new StringWriter(), stderr);
+            int exit = OfflineCasperStoreConsole.Run(new[] { "--store", missing }, stdout, stderr);
 
             Assert.AreNotEqual(0, exit);
             StringAssert.Contains(stderr.ToString(), missing);
+            AssertSessionIdentity(stdout.ToString(), missing);
             Assert.IsFalse(File.Exists(missing), "Must not create an empty .pds on missing path.");
+        }
+
+        /// <summary><c>--config</c> with StorePath opens that store and logs session identity.</summary>
+        [TestMethod]
+        public void Run_WithConfigStorePath_ReturnsZeroAndLogsIdentity()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-config-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "FromConfig.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+                File.WriteAllText(configPath, "{ \"StorePath\": " + JsonString(pds) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stdout.ToString(), "connectors loaded");
+                AssertSessionIdentity(stdout.ToString(), pds);
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary><c>--store</c> overrides <c>StorePath</c> from <c>--config</c>.</summary>
+        [TestMethod]
+        public void Run_WithStoreOverride_OpensStoreNotConfigPath()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-override-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string configOnlyPds = Path.Combine(folder, "ConfigOnly.pds");
+            string storeOverridePds = Path.Combine(folder, "StoreOverride.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, storeOverridePds, fullScreenWithData: true, area1WithData: false);
+
+                // Config points at a missing path; store flag must win without requiring that file.
+                File.WriteAllText(configPath, "{ \"StorePath\": " + JsonString(configOnlyPds) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--config", configPath, "--store", storeOverridePds },
+                    stdout,
+                    stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                AssertSessionIdentity(stdout.ToString(), storeOverridePds);
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("ConfigOnly.pds", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Identity must name the --store path, not the config StorePath.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Missing config file exits non-zero without opening a pipeline.</summary>
+        [TestMethod]
+        public void Run_WithMissingConfig_ReturnsNonZero()
+        {
+            string missing = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-missing-config-" + Guid.NewGuid().ToString("N") + ".json");
+            var stderr = new StringWriter();
+            int exit = OfflineCasperStoreConsole.Run(new[] { "--config", missing }, new StringWriter(), stderr);
+
+            Assert.AreNotEqual(0, exit);
+            StringAssert.Contains(stderr.ToString(), "Configuration file not found");
+        }
+
+        /// <summary>Invalid config JSON exits non-zero without opening a pipeline.</summary>
+        [TestMethod]
+        public void Run_WithInvalidConfigJson_ReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-badjson-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string configPath = Path.Combine(folder, "bad.json");
+            try
+            {
+                File.WriteAllText(configPath, "{ not valid json");
+
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, new StringWriter(), stderr);
+
+                Assert.AreNotEqual(0, exit);
+                StringAssert.Contains(stderr.ToString(), "Invalid configuration JSON");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Config with empty StorePath exits non-zero.</summary>
+        [TestMethod]
+        public void Run_WithConfigMissingStorePath_ReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-emptystore-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string configPath = Path.Combine(folder, "empty-store.json");
+            try
+            {
+                File.WriteAllText(configPath, "{ \"StorePath\": \"\" }");
+
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, new StringWriter(), stderr);
+
+                Assert.AreNotEqual(0, exit);
+                StringAssert.Contains(stderr.ToString(), "StorePath");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Empty <c>--config</c> value prints usage and exits non-zero.</summary>
+        [TestMethod]
+        public void Run_WithEmptyConfigValue_ReturnsNonZeroAndPrintsUsage()
+        {
+            var stderr = new StringWriter();
+            int exit = OfflineCasperStoreConsole.Run(new[] { "--config" }, new StringWriter(), stderr);
+
+            Assert.AreNotEqual(0, exit);
+            StringAssert.Contains(stderr.ToString(), "--config");
         }
 
         /// <summary>Expe2-style session folder is rejected; a <c>.pds</c> file is required.</summary>
@@ -162,6 +335,7 @@ namespace Logigram1Analysis.Tests
                 int exit = OfflineCasperStoreConsole.Run(new[] { "--store", pds }, stdout, stderr);
 
                 Assert.AreEqual(0, exit, stderr.ToString());
+                AssertSessionIdentity(stdout.ToString(), pds);
                 StringAssert.Contains(stdout.ToString(), "connectors loaded");
                 StringAssert.Contains(stdout.ToString(), "required streams OK");
                 foreach ((string partition, string stream, bool _) in OfflineCasperStoreConsole.RequiredStreams)
@@ -440,6 +614,20 @@ namespace Logigram1Analysis.Tests
 
                 pipeline.Run();
             }
+        }
+
+        private static void AssertSessionIdentity(string output, string storePath)
+        {
+            string fullPath = Path.GetFullPath(storePath);
+            string id = Path.GetFileName(fullPath);
+            StringAssert.Contains(output, "Session identity:");
+            StringAssert.Contains(output, "path=" + fullPath);
+            StringAssert.Contains(output, "id=" + id);
+        }
+
+        private static string JsonString(string value)
+        {
+            return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
         private static void TryDeleteDirectory(string folder)
