@@ -15,10 +15,13 @@
     <PackageReference Include="Microsoft.Psi.Audio" Version="0.19.100.1-beta" />
     <PackageReference Include="Microsoft.Psi.Imaging" Version="0.19.100.1-beta" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Components\PipelineServices\PipelineServices.csproj" />
     <ProjectReference Include="..\..\Components\PsiFormats\PsiFormats.csproj" />
+    <ProjectReference Include="..\..\Components\Logigram1.Logic\Logigram1.Logic.csproj" />
+    <ProjectReference Include="..\..\Components\Logigram1\Logigram1.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Default develop config (PreTest.081 / Casper5); copy beside the exe and pass via config flag. -->

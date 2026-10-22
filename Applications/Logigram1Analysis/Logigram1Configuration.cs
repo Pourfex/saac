@@ -13,8 +13,8 @@ namespace Logigram1Analysis
     using Newtonsoft.Json;
 
     /// <summary>
-    /// Slim JSON config for Logigram 1: selects the Casper <c>.pds</c> store path (not an Expe2 session folder)
-    /// and which Logic units are enabled for required-topic checks.
+    /// Slim JSON config for Logigram 1: selects the Casper <c>.pds</c> store path (not an Expe2 session folder),
+    /// which Logic units are enabled, and optional analysis output path (OUTPUT_HOME B).
     /// </summary>
     public sealed class Logigram1Configuration
     {
@@ -36,6 +36,13 @@ namespace Logigram1Analysis
         /// </summary>
         [JsonProperty("EnabledUnits")]
         public List<string> EnabledUnits { get; set; }
+
+        /// <summary>
+        /// Gets or sets optional analysis Dataset <c>.pds</c> path (OUTPUT_HOME B).
+        /// Absent or empty → auto sibling <c>&lt;inputName&gt;.Logigram1Analysis.pds</c> beside the input.
+        /// </summary>
+        [JsonProperty("OutputPath")]
+        public string OutputPath { get; set; }
 
         /// <summary>
         /// Loads configuration from a JSON file.
@@ -109,6 +116,12 @@ namespace Logigram1Analysis
             if (configuration.EnabledUnits == null)
             {
                 configuration.EnabledUnits = new List<string>();
+            }
+
+            configuration.OutputPath = configuration.OutputPath?.Trim();
+            if (string.IsNullOrEmpty(configuration.OutputPath))
+            {
+                configuration.OutputPath = null;
             }
 
             return configuration;

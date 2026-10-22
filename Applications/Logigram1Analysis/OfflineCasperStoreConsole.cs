@@ -23,6 +23,7 @@ namespace Logigram1Analysis
     /// PreTest.081-shaped required streams without running a full replay.
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
+    /// When <c>Logigram1.FirstUnit</c> is enabled, runs the interim stub and persists analysis State/Outcome.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -67,9 +68,10 @@ namespace Logigram1Analysis
 
             string storePath;
             IReadOnlyList<string> enabledUnits;
+            string outputPathOverride;
             try
             {
-                ResolveRunInputs(args, out storePath, out enabledUnits);
+                ResolveRunInputs(args, out storePath, out enabledUnits, out outputPathOverride);
             }
             catch (ArgumentException exception)
             {
@@ -194,6 +196,53 @@ namespace Logigram1Analysis
                         $"  BatteryId={segment.BatteryId} start={segment.StartOriginatingTime:o} end={segment.EndOriginatingTime:o}");
                 }
 
+                // Empty EnabledUnits → substrate + Battery discovery only (no unit / no output Dataset).
+                bool firstUnitEnabled = enabledUnits.Any(unitId =>
+                    string.Equals(
+                        unitId?.Trim(),
+                        Logigram1UnitTopicRegistry.FirstUnitId,
+                        StringComparison.Ordinal));
+                if (!firstUnitEnabled)
+                {
+                    return 0;
+                }
+
+                string resolvedOutput;
+                try
+                {
+                    resolvedOutput = AnalysisOutputPath.Resolve(fullPath, outputPathOverride);
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException
+                    || exception is PathTooLongException
+                    || exception is NotSupportedException
+                    || exception is SecurityException)
+                {
+                    stderr.WriteLine($"Failed to resolve analysis output path: {exception.Message}");
+                    return 1;
+                }
+
+                if (!AnalysisOutputPath.TryValidate(fullPath, resolvedOutput, out string outputError))
+                {
+                    stderr.WriteLine(outputError ?? "Analysis output path rejected.");
+                    return 1;
+                }
+
+                try
+                {
+                    FirstUnitPipelineRunner.RunAndPersist(
+                        pipeline.Dataset,
+                        batterySegments,
+                        resolvedOutput);
+                }
+                catch (Exception exception)
+                {
+                    stderr.WriteLine(
+                        $"FirstUnit analysis run / persist failed (input store untouched): {exception.Message}");
+                    return 1;
+                }
+
+                stdout.WriteLine($"Analysis output Dataset: {resolvedOutput}");
                 return 0;
             }
             catch (Exception exception)
@@ -215,19 +264,25 @@ namespace Logigram1Analysis
         /// <returns>The unresolved store path string (may not exist yet).</returns>
         public static string ResolveStorePath(string[] args)
         {
-            ResolveRunInputs(args, out string storePath, out _);
+            ResolveRunInputs(args, out string storePath, out _, out _);
             return storePath;
         }
 
         /// <summary>
-        /// Resolves store path and enabled Logic unit ids from CLI args.
-        /// <c>--store</c> wins for the path; <c>EnabledUnits</c> come from <c>--config</c> when present
-        /// (even if <c>--store</c> overrides <c>StorePath</c>). No config → empty enabled list (substrate only).
+        /// Resolves store path, enabled Logic unit ids, and optional output path from CLI args.
+        /// <c>--store</c> wins for the path; <c>EnabledUnits</c> / <c>OutputPath</c> come from <c>--config</c>
+        /// when present (even if <c>--store</c> overrides <c>StorePath</c>).
+        /// No config → empty enabled list (substrate only) and null output override.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <param name="storePath">Unresolved store path (may not exist yet).</param>
         /// <param name="enabledUnits">Unit ids for Logic-topic checks (never null).</param>
-        public static void ResolveRunInputs(string[] args, out string storePath, out IReadOnlyList<string> enabledUnits)
+        /// <param name="outputPathOverride">Config <c>OutputPath</c> when set; otherwise null.</param>
+        public static void ResolveRunInputs(
+            string[] args,
+            out string storePath,
+            out IReadOnlyList<string> enabledUnits,
+            out string outputPathOverride)
         {
             if (args == null || args.Length == 0)
             {
@@ -251,6 +306,7 @@ namespace Logigram1Analysis
             enabledUnits = configuration?.EnabledUnits != null
                 ? (IReadOnlyList<string>)configuration.EnabledUnits
                 : Array.Empty<string>();
+            outputPathOverride = configuration?.OutputPath;
 
             if (storeFlag != null)
             {

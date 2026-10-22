@@ -14,7 +14,7 @@ namespace SAAC.Logigram1.Logic
     /// Designated AD-10 aggregator / outcome writer: sole producer of <see cref="LogigramOutcome"/>
     /// on a Psi pipeline (N evidence receivers → one Outcome emitter).
     /// Pattern mirrors CollaborationIndices Fusion N→1 receivers (e.g. InstantStateComponent).
-    /// Console wiring is deferred to story 2.4.
+    /// Console wiring: Analysis pipes FirstUnit evidence here and persists <see cref="Out"/>.
     /// </summary>
     public class LogigramOutcomeWriter : IProducer<LogigramOutcome>
     {

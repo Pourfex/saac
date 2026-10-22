@@ -10,10 +10,12 @@ namespace Logigram1Analysis.Tests
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Numerics;
     using Logigram1Analysis;
     using Microsoft.Psi;
     using Microsoft.Psi.Data;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using SAAC.Logigram1;
     using SAAC.PsiFormats;
 
     /// <summary>
@@ -637,6 +639,208 @@ namespace Logigram1Analysis.Tests
                 Assert.IsFalse(
                     stderr.ToString().IndexOf("Required Logic topic missing", StringComparison.Ordinal) >= 0,
                     stderr.ToString());
+
+                string expectedSibling = Path.Combine(
+                    folder,
+                    Path.GetFileNameWithoutExtension(pds) + AnalysisOutputPath.AutoSiblingSuffix);
+                StringAssert.Contains(stdout.ToString(), "Analysis output Dataset:");
+                StringAssert.Contains(stdout.ToString(), expectedSibling);
+                Assert.IsTrue(File.Exists(expectedSibling), "Default sibling analysis Dataset must be written.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// FirstUnit + OutputPath override writes to the override path and prints it.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithFirstUnitAndOutputPathOverride_WritesOverrideAndPrintsPath()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-out-override-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Input.pds");
+            string overridePds = Path.Combine(folder, "CustomAnalysis.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ]"
+                    + ", \"OutputPath\": " + JsonString(overridePds) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stdout.ToString(), "Analysis output Dataset:");
+                StringAssert.Contains(stdout.ToString(), overridePds);
+                Assert.IsTrue(File.Exists(overridePds));
+                Assert.IsFalse(
+                    File.Exists(Path.Combine(folder, "Input.Logigram1Analysis.pds")),
+                    "Override must not also write the auto sibling.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// OutputPath equal to input Dataset is rejected; input untouched; exit non-zero.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithOutputPathEqualToInput_RejectsAndLeavesInputUntouched()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-out-overwrite-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Same.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+                DateTime before = File.GetLastWriteTimeUtc(pds);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ]"
+                    + ", \"OutputPath\": " + JsonString(pds) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "must not overwrite the input Dataset");
+                Assert.IsTrue(File.Exists(pds));
+                Assert.AreEqual(before, File.GetLastWriteTimeUtc(pds), "Input Dataset must remain untouched.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Unwritable analysis output parent → stderr explain; exit non-zero; input untouched.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithUnwritableOutputPath_ReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-out-unwritable-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Input.pds");
+            string blocker = Path.Combine(folder, "NotADirectory");
+            File.WriteAllText(blocker, "file-not-dir");
+            string badOutput = Path.Combine(blocker, "out.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ]"
+                    + ", \"OutputPath\": " + JsonString(badOutput) + " }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                string err = stderr.ToString();
+                Assert.IsTrue(
+                    err.IndexOf("not writable", StringComparison.OrdinalIgnoreCase) >= 0
+                    || err.IndexOf("not a directory", StringComparison.OrdinalIgnoreCase) >= 0
+                    || err.IndexOf("parent path is a file", StringComparison.OrdinalIgnoreCase) >= 0,
+                    err);
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Analysis output Dataset:", StringComparison.Ordinal) >= 0);
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Persisted analysis State carries BatteryId from Spawn→Finish scope.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithFirstUnit_PersistsBatteryKeyedState()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-battery-state-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "BatteryState.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.FirstUnitTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (42, start, start.AddSeconds(5)),
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                string outputPds = Path.Combine(folder, "BatteryState.Logigram1Analysis.pds");
+                Assert.IsTrue(File.Exists(outputPds), stdout.ToString());
+
+                var states = ReadAnalysisStates(outputPds);
+                Assert.IsTrue(states.Count > 0, "Expected at least one Logigram1.State message.");
+                Assert.IsTrue(
+                    states.Any(state => state.BatteryId == 42),
+                    "Expected BatteryId=42 on persisted State.");
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.Status != null
+                        && state.Status.IndexOf("interim-stub", StringComparison.Ordinal) >= 0),
+                    "Expected interim-stub Status labels.");
+
+                // Outcome stream must be present even when empty (no fabricated regulation).
+                Dataset analysisDataset = Dataset.Load(outputPds);
+                Assert.IsNotNull(
+                    OfflineCasperStoreConsole.FindStreamByExactName(
+                        analysisDataset,
+                        LogigramOutcome.StreamName),
+                    "Expected Logigram1.Outcome stream in analysis Dataset (messages may be empty).");
             }
             finally
             {
@@ -793,6 +997,12 @@ namespace Logigram1Analysis.Tests
                 Assert.IsFalse(
                     stdout.ToString().IndexOf("Required Logic topics", StringComparison.OrdinalIgnoreCase) >= 0,
                     "Empty EnabledUnits must not emit a Logic-topic section.");
+                Assert.IsFalse(
+                    stdout.ToString().IndexOf("Analysis output Dataset:", StringComparison.Ordinal) >= 0,
+                    "Empty EnabledUnits must not write an analysis output Dataset.");
+                Assert.IsFalse(
+                    File.Exists(Path.Combine(folder, "EmptyUnits.Logigram1Analysis.pds")),
+                    "Empty EnabledUnits must not create sibling analysis .pds.");
             }
             finally
             {
@@ -889,11 +1099,24 @@ namespace Logigram1Analysis.Tests
                 ("Area1", area1WithData),
                 ("Area2", true),
             };
+
+            // FirstUnit AD-7 topics need catalogue types for the stub run; other names stay as int presence stubs.
+            var firstUnitTopics = new List<string>();
+            var otherLogicTopics = new List<string>();
             if (logicTopics != null)
             {
+                var firstUnitSet = new HashSet<string>(Logigram1UnitTopicRegistry.FirstUnitTopics, StringComparer.Ordinal);
                 foreach (string topic in logicTopics)
                 {
-                    serverStreams.Add((topic, true));
+                    if (firstUnitSet.Contains(topic))
+                    {
+                        firstUnitTopics.Add(topic);
+                    }
+                    else
+                    {
+                        otherLogicTopics.Add(topic);
+                        serverStreams.Add((topic, true));
+                    }
                 }
             }
 
@@ -912,7 +1135,8 @@ namespace Logigram1Analysis.Tests
                 serverStreams,
                 start,
                 batterySegments: segments,
-                emptyBatteryStreams: includeBatteryBoundaries && emptyBatteryStreams);
+                emptyBatteryStreams: includeBatteryBoundaries && emptyBatteryStreams,
+                firstUnitTopics: firstUnitTopics);
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");
@@ -987,7 +1211,8 @@ namespace Logigram1Analysis.Tests
             DateTime start,
             string storeRoot = null,
             IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> batterySegments = null,
-            bool emptyBatteryStreams = false)
+            bool emptyBatteryStreams = false,
+            IEnumerable<string> firstUnitTopics = null)
         {
             string storePath = storeRoot ?? Path.Combine(folder, storeName);
             Directory.CreateDirectory(storePath);
@@ -1001,6 +1226,11 @@ namespace Logigram1Analysis.Tests
                         ? new[] { (1, start) }
                         : Array.Empty<(int, DateTime)>();
                     Generators.Sequence(pipeline, values).Write(streamName, store);
+                }
+
+                if (firstUnitTopics != null)
+                {
+                    WriteFirstUnitTopicStreams(pipeline, store, firstUnitTopics, start);
                 }
 
                 if (batterySegments != null || emptyBatteryStreams)
@@ -1022,6 +1252,75 @@ namespace Logigram1Analysis.Tests
 
                 pipeline.Run();
             }
+        }
+
+        /// <summary>
+        /// Writes FirstUnit AD-7 topics with Casper catalogue types (payload ignored by interim stub).
+        /// </summary>
+        private static void WriteFirstUnitTopicStreams(
+            Pipeline pipeline,
+            PsiExporter store,
+            IEnumerable<string> topics,
+            DateTime time)
+        {
+            foreach (string topic in topics)
+            {
+                switch (topic)
+                {
+                    case "Module status":
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { (new ValueTuple<int, string>(1, "OK"), time) })
+                            .Write(topic, store);
+                        break;
+
+                    case "Porte1 ouverture":
+                    case "Porte2 ouverture":
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time) })
+                            .Write(topic, store);
+                        break;
+
+                    case "M1-SelectModule":
+                    case "M2-SelectModule":
+                        Generators.Sequence(pipeline, new[] { ("6V", time) }).Write(topic, store);
+                        break;
+
+                    case "M1-Validation":
+                    case "M2-Validation":
+                        Generators.Sequence(pipeline, new[] { (true, time) }).Write(topic, store);
+                        break;
+
+                    default:
+                        Generators.Sequence(pipeline, new[] { (1, time) }).Write(topic, store);
+                        break;
+                }
+            }
+        }
+
+        private static List<LogigramState> ReadAnalysisStates(string analysisPdsPath)
+        {
+            var results = new List<LogigramState>();
+            Dataset dataset = Dataset.Load(analysisPdsPath);
+            IStreamMetadata metadata = OfflineCasperStoreConsole.FindStreamByExactName(
+                dataset,
+                LogigramState.StreamName);
+            Assert.IsNotNull(metadata, "Expected Logigram1.State in analysis Dataset.");
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(ReadAnalysisStates)))
+            {
+                PsiImporter store = PsiStore.Open(pipeline, metadata.StoreName, metadata.StorePath);
+                store.OpenStream<LogigramState>(metadata.Name)
+                    .Do(state => results.Add(new LogigramState
+                    {
+                        Status = state.Status,
+                        BatteryId = state.BatteryId,
+                    }));
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+            }
+
+            return results;
         }
 
         private static void AssertSessionIdentity(string output, string storePath)
