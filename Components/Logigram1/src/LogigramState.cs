@@ -1,12 +1,15 @@
+// <copyright file="LogigramState.cs" company="SAAC">
 // Licensed under the CeCILL-C License. See LICENSE.md file in the project root for full license information.
 // This software is distributed under the CeCILL-C FREE SOFTWARE LICENSE AGREEMENT.
 // See https://cecill.info/licences/Licence_CeCILL-C_V1-en.html for details.
+// </copyright>
 
 namespace SAAC.Logigram1
 {
     /// <summary>
-    /// Session-scoped Logigram 1 state placeholder message.
-    /// Epic 2 expands the alphabet and writer; no Battery fields until then.
+    /// Session-scoped Logigram 1 progress / position state message (AD-11).
+    /// Regulation terminals live on <see cref="LogigramOutcome"/> / <c>Logigram1.Outcome</c>, not here.
+    /// No Battery id/index fields until story 2.3 / OQ3.
     /// </summary>
     public class LogigramState
     {

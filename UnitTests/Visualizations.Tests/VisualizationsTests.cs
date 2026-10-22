@@ -25,6 +25,8 @@ namespace Visualizations.Tests
         {
             "LogicUnit",
             "LogicUnits",
+            "Logigram1.Logic",
+            "SAAC-Logigram1.Logic",
             "Logigram1Logic",
             "LogigramLogic",
         };
@@ -121,17 +123,22 @@ namespace Visualizations.Tests
                 .Select(element => (string)element.Attribute("Include") ?? string.Empty)
                 .ToList();
 
+            var packageReferences = document
+                .Descendants(msbuild + "PackageReference")
+                .Select(element => (string)element.Attribute("Include") ?? string.Empty)
+                .ToList();
+
             Assert.IsTrue(
                 projectReferences.Any(IsLogigram1ContractsReference),
                 "Visualizations must reference Logigram1 contracts.");
 
-            foreach (string reference in projectReferences)
+            foreach (string reference in projectReferences.Concat(packageReferences))
             {
                 foreach (string forbidden in ForbiddenLogicUnitProjectNameFragments)
                 {
                     Assert.IsFalse(
                         reference.IndexOf(forbidden, StringComparison.OrdinalIgnoreCase) >= 0,
-                        $"Visualizations must not reference Logic unit project '{reference}'.");
+                        $"Visualizations must not reference Logic via ProjectReference/PackageReference '{reference}'.");
                 }
             }
         }
