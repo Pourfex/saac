@@ -1364,6 +1364,194 @@ namespace Logigram1Analysis.Tests
             CollectionAssert.Contains(topics.ToList(), "M2-Validation");
         }
 
+        /// <summary>Registry exposes Node3 topics including Object Bound and wrists.</summary>
+        [TestMethod]
+        public void UnitTopicRegistry_Node3_HasPorteAreaObjectBoundWrists()
+        {
+            Assert.IsTrue(
+                Logigram1UnitTopicRegistry.TryGetRequiredTopics(
+                    Logigram1UnitTopicRegistry.Node3UnitId,
+                    out IReadOnlyList<string> topics));
+            CollectionAssert.Contains(topics.ToList(), "Porte1 ouverture");
+            CollectionAssert.Contains(topics.ToList(), "Area1");
+            CollectionAssert.Contains(topics.ToList(), "Object Bound");
+            CollectionAssert.Contains(topics.ToList(), "1-LeftWrist");
+            CollectionAssert.Contains(topics.ToList(), "2-RightWrist");
+        }
+
+        /// <summary>Topic union of FirstUnit + Node3 is distinct and includes both bags.</summary>
+        [TestMethod]
+        public void UnitTopicRegistry_FirstUnitPlusNode3_UnionIncludesBoth()
+        {
+            IReadOnlyList<string> union = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                new[] { Logigram1UnitTopicRegistry.FirstUnitId, Logigram1UnitTopicRegistry.Node3UnitId },
+                out string unknown);
+            Assert.IsNull(unknown);
+            Assert.IsNotNull(union);
+            CollectionAssert.Contains(union.ToList(), "Module status");
+            CollectionAssert.Contains(union.ToList(), "Object Bound");
+            Assert.AreEqual(
+                union.Count,
+                new HashSet<string>(union, StringComparer.Ordinal).Count,
+                "Union must be distinct.");
+        }
+
+        /// <summary>Node3 alone: topics present → analysis Dataset with node-3 State + Gamma.</summary>
+        [TestMethod]
+        public void Run_WithNode3Only_PersistsNode3StateAndGamma()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-node3-ok-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Node3Ok.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.Node3Topics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (15, start, start.AddSeconds(10)),
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.Node3\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                string outputPds = Path.Combine(folder, "Node3Ok.Logigram1Analysis.pds");
+                Assert.IsTrue(File.Exists(outputPds), stdout.ToString());
+
+                var states = ReadAnalysisStates(outputPds);
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.BatteryId == 15
+                        && state.Status != null
+                        && state.Status.IndexOf("node-3:", StringComparison.Ordinal) >= 0),
+                    "Expected node-3 Status with BatteryId=15.");
+
+                var outcomes = ReadAnalysisOutcomes(outputPds);
+                Assert.IsTrue(
+                    outcomes.Any(outcome =>
+                        outcome.Regulation == LogigramRegulation.Gamma && outcome.BatteryId == 15),
+                    "Expected Gamma Outcome with BatteryId=15.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Node3 enabled with missing topics → explicit gaps; exit non-zero; no Dataset.</summary>
+        [TestMethod]
+        public void Run_WithNode3MissingTopics_ListsGapsAndReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-node3-gap-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Node3Gap.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.Node3\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing: Object Bound");
+                Assert.IsFalse(File.Exists(Path.Combine(folder, "Node3Gap.Logigram1Analysis.pds")));
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>FirstUnit + Node3 dual enable: both node-1/2 and node-3 persist; topic union OK.</summary>
+        [TestMethod]
+        public void Run_WithFirstUnitAndNode3_PersistsBothUnits()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-dual-units-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "DualUnits.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                var union = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                    new[] { Logigram1UnitTopicRegistry.FirstUnitId, Logigram1UnitTopicRegistry.Node3UnitId },
+                    out _);
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: union,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (21, start, start.AddSeconds(15)),
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.FirstUnit\", \"Logigram1.Node3\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                StringAssert.Contains(stdout.ToString(), "Required Logic topics OK:");
+                StringAssert.Contains(stdout.ToString(), "Object Bound: present");
+                StringAssert.Contains(stdout.ToString(), "Module status: present");
+
+                string outputPds = Path.Combine(folder, "DualUnits.Logigram1Analysis.pds");
+                var states = ReadAnalysisStates(outputPds);
+                Assert.IsTrue(
+                    states.Any(s => s.Status != null && s.Status.IndexOf("node-1", StringComparison.Ordinal) >= 0),
+                    "Expected FirstUnit node-1.");
+                Assert.IsTrue(
+                    states.Any(s =>
+                        s.BatteryId == 21
+                        && s.Status != null
+                        && s.Status.IndexOf("node-2", StringComparison.Ordinal) >= 0),
+                    "Expected FirstUnit node-2 (BatteryId=21).");
+                Assert.IsTrue(
+                    states.Any(s =>
+                        s.BatteryId == 21
+                        && s.Status != null
+                        && s.Status.IndexOf("node-3:", StringComparison.Ordinal) >= 0),
+                    "Expected Node3 fire (BatteryId=21).");
+
+                // Fixture fires FirstUnit node-2 Gamma + at least one Node3 Gamma — both must persist.
+                int gammaCount = ReadAnalysisOutcomes(outputPds)
+                    .Count(o => o.Regulation == LogigramRegulation.Gamma && o.BatteryId == 21);
+                Assert.IsTrue(
+                    gammaCount >= 2,
+                    "Expected ≥2 BatteryId=21 Gamma Outcomes (FirstUnit node-2 + Node3); got " + gammaCount + ".");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
         /// <summary>
         /// Builds a PreTest.081-shaped Dataset.
         /// </summary>
@@ -1393,14 +1581,22 @@ namespace Logigram1Analysis.Tests
             WriteStore(folder, "VideoRemoteApp", new[] { ("FullScreen", fullScreenWithData) }, start);
             WriteStore(folder, "WhisperStreaming", new[] { ("Audio_User_1", true), ("Audio_User_2", true) }, start);
 
-            var serverStreams = new List<(string Stream, bool WithData)>
-            {
-                ("Area1", area1WithData),
-                ("Area2", true),
-            };
+            var node3Set = new HashSet<string>(Logigram1UnitTopicRegistry.Node3Topics, StringComparer.Ordinal);
+            bool node3Areas = logicTopics != null
+                && logicTopics.Any(t => string.Equals(t, "Area1", StringComparison.Ordinal)
+                    || string.Equals(t, "Area2", StringComparison.Ordinal));
 
-            // FirstUnit AD-7 topics need catalogue types for the stub run; other names stay as int presence stubs.
+            // When Node3 is enabled, Area streams must be catalogue (int,bool,string) — not int stubs.
+            var serverStreams = new List<(string Stream, bool WithData)>();
+            if (!node3Areas)
+            {
+                serverStreams.Add(("Area1", area1WithData));
+                serverStreams.Add(("Area2", true));
+            }
+
+            // FirstUnit / Node3 AD-7 topics need catalogue types; unknown names stay as int presence stubs.
             var firstUnitTopics = new List<string>();
+            var node3Topics = new List<string>();
             var otherLogicTopics = new List<string>();
             if (logicTopics != null)
             {
@@ -1410,6 +1606,10 @@ namespace Logigram1Analysis.Tests
                     if (firstUnitSet.Contains(topic))
                     {
                         firstUnitTopics.Add(topic);
+                    }
+                    else if (node3Set.Contains(topic))
+                    {
+                        node3Topics.Add(topic);
                     }
                     else
                     {
@@ -1435,7 +1635,8 @@ namespace Logigram1Analysis.Tests
                 start,
                 batterySegments: segments,
                 emptyBatteryStreams: includeBatteryBoundaries && emptyBatteryStreams,
-                firstUnitTopics: firstUnitTopics);
+                firstUnitTopics: firstUnitTopics,
+                node3Topics: node3Topics);
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");
@@ -1511,7 +1712,8 @@ namespace Logigram1Analysis.Tests
             string storeRoot = null,
             IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> batterySegments = null,
             bool emptyBatteryStreams = false,
-            IEnumerable<string> firstUnitTopics = null)
+            IEnumerable<string> firstUnitTopics = null,
+            IEnumerable<string> node3Topics = null)
         {
             string storePath = storeRoot ?? Path.Combine(folder, storeName);
             Directory.CreateDirectory(storePath);
@@ -1530,6 +1732,11 @@ namespace Logigram1Analysis.Tests
                 if (firstUnitTopics != null)
                 {
                     WriteFirstUnitTopicStreams(pipeline, store, firstUnitTopics, start);
+                }
+
+                if (node3Topics != null)
+                {
+                    WriteNode3TopicStreams(pipeline, store, node3Topics, start, firstUnitTopics);
                 }
 
                 if (batterySegments != null || emptyBatteryStreams)
@@ -1591,6 +1798,90 @@ namespace Logigram1Analysis.Tests
                     case "M2-Validation":
                         // Idle/false — select already covers node-2; avoid a second fire from true.
                         Generators.Sequence(pipeline, new[] { (false, time.AddSeconds(1.2)) }).Write(topic, store);
+                        break;
+
+                    default:
+                        Generators.Sequence(pipeline, new[] { (1, time) }).Write(topic, store);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Writes Node3 topics with catalogue types: closed door, Object Bound AABB, wrists, then
+        /// player leave GeneratorArea so node-3 fires inside the Battery window.
+        /// Porte streams already written by FirstUnit are skipped (shared topic).
+        /// </summary>
+        private static void WriteNode3TopicStreams(
+            Pipeline pipeline,
+            PsiExporter store,
+            IEnumerable<string> topics,
+            DateTime time,
+            IEnumerable<string> firstUnitTopics)
+        {
+            var writtenByFirstUnit = new HashSet<string>(
+                firstUnitTopics ?? Array.Empty<string>(),
+                StringComparer.Ordinal);
+
+            foreach (string topic in topics)
+            {
+                // Shared Porte already written with closed=false by FirstUnit helper.
+                if (writtenByFirstUnit.Contains(topic)
+                    && (topic.StartsWith("Porte", StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                switch (topic)
+                {
+                    case "Porte1 ouverture":
+                    case "Porte2 ouverture":
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time.AddSeconds(0.5)) })
+                            .Write(topic, store);
+                        break;
+
+                    case "Area1":
+                    case "Area2":
+                        Generators.Sequence(
+                                pipeline,
+                                new[]
+                                {
+                                    (new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), time.AddSeconds(2.0)),
+                                })
+                            .Write(topic, store);
+                        break;
+
+                    case "Object Bound":
+                        Generators.Sequence(
+                                pipeline,
+                                new[]
+                                {
+                                    (new ValueTuple<string, Vector3, Vector3>(
+                                        "Generateur1",
+                                        new Vector3(0, 0, 0),
+                                        new Vector3(1, 1, 1)), time.AddSeconds(0.2)),
+                                    (new ValueTuple<string, Vector3, Vector3>(
+                                        "Generateur2",
+                                        new Vector3(10, 0, 0),
+                                        new Vector3(11, 1, 1)), time.AddSeconds(0.25)),
+                                })
+                            .Write(topic, store);
+                        break;
+
+                    case "1-LeftWrist":
+                    case "1-RightWrist":
+                    case "2-LeftWrist":
+                    case "2-RightWrist":
+                        // Far from AABB — door branch alone covers node-3 in dual/FirstUnit fixtures.
+                        Generators.Sequence(
+                                pipeline,
+                                new[]
+                                {
+                                    (Tuple.Create(new Vector3(100, 0, 0), Vector3.Zero), time.AddSeconds(0.3)),
+                                })
+                            .Write(topic, store);
                         break;
 
                     default:

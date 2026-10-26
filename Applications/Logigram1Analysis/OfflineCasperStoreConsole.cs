@@ -23,7 +23,7 @@ namespace Logigram1Analysis
     /// PreTest.081-shaped required streams without running a full replay.
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
-    /// When <c>Logigram1.FirstUnit</c> is enabled, runs nodes 1–2 derivation and persists analysis State/Outcome.
+    /// When <c>Logigram1.FirstUnit</c> and/or <c>Logigram1.Node3</c> are enabled, runs derivation and persists analysis State/Outcome.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -197,12 +197,13 @@ namespace Logigram1Analysis
                 }
 
                 // Empty EnabledUnits → substrate + Battery discovery only (no unit / no output Dataset).
-                bool firstUnitEnabled = enabledUnits.Any(unitId =>
-                    string.Equals(
-                        unitId?.Trim(),
-                        Logigram1UnitTopicRegistry.FirstUnitId,
-                        StringComparison.Ordinal));
-                if (!firstUnitEnabled)
+                bool firstUnitEnabled = FirstUnitPipelineRunner.IsUnitEnabled(
+                    enabledUnits,
+                    Logigram1UnitTopicRegistry.FirstUnitId);
+                bool node3Enabled = FirstUnitPipelineRunner.IsUnitEnabled(
+                    enabledUnits,
+                    Logigram1UnitTopicRegistry.Node3UnitId);
+                if (!firstUnitEnabled && !node3Enabled)
                 {
                     return 0;
                 }
@@ -234,12 +235,13 @@ namespace Logigram1Analysis
                         pipeline.Dataset,
                         batterySegments,
                         resolvedOutput,
-                        fullPath);
+                        fullPath,
+                        enabledUnits);
                 }
                 catch (Exception exception)
                 {
                     stderr.WriteLine(
-                        $"FirstUnit analysis run / persist failed (input store untouched): {exception.Message}");
+                        $"Logic analysis run / persist failed (input store untouched): {exception.Message}");
                     return 1;
                 }
 

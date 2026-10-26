@@ -1,6 +1,6 @@
 # Logigram1.Logic
 
-Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated outcome writer** and **`Logigram1.FirstUnit`** (nodes 1–2).
+Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated outcome writer**, **`Logigram1.FirstUnit`** (nodes 1–2), and **`Logigram1.Node3`** (node 3).
 
 ## Components
 
@@ -8,6 +8,7 @@ Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated 
 |------|------|
 | `LogigramOutcomeWriter` | Sole producer of `Logigram1.Outcome` when wired (AD-10). N evidence receivers + optional regulation-decision inputs. |
 | `Logigram1FirstUnit` | Unit id `Logigram1.FirstUnit` (nodes 1–2). Derives node 1 then node 2; emits Battery-scoped `Logigram1.State` + `Logigram1.Evidence`; on node-2 posts Gamma to the writer via `RegulationDecisionWithBatteryOut`. |
+| `Logigram1Node3Unit` | Unit id `Logigram1.Node3` (node 3). Door-closed leave-zone **or** hand-near Generateur AABB + leave; independently enableable (no FirstUnit / Alpha / Beta / gaze / speech). On fire → State/Evidence + Gamma for the writer. |
 
 - `RegulationDecisionIn` emits Outcome with default `BatteryId` (0); `RegulationDecisionWithBatteryIn` stamps the supplied Battery scope (AD-6).
 - Evidence alone never invents terminals (honest absent / non-terminal).
@@ -34,4 +35,21 @@ Catalogue payload types (Analysis importer map):
 | `M1-SelectModule`, `M2-SelectModule` | `string` |
 | `M1-Validation`, `M2-Validation` | `bool` |
 
-Wire order (Analysis): substrate → Logic topics → Battery discovery → (if enabled) resolve output → importers → FirstUnit → `EvidenceOut` → writer.EvidenceIn; `RegulationDecisionWithBatteryOut` → writer.RegulationDecisionWithBatteryIn → persist `Logigram1.State` / `Logigram1.Outcome` → print path.
+## Node3 ↔ Logigramme1.md node 3 ↔ AD-7 topics
+
+> Independently enableable (story 3.3). Evaluates local inputs only (no gate on “node 2 did not fire”). Status prefix `node-3:` for graph viz.
+
+| Logigramme1.md node | Meaning | AD-7 PSI topic(s) | Derivation |
+|---------------------|---------|-------------------|------------|
+| **3** | Porte fermée + leave GeneratorArea **OU** hand near door + leave | `Porte1/2 ouverture`, `Area1/2`, `Object Bound`, `?-LeftWrist`, `?-RightWrist` | On **player** (`id=-1`) **exit** (`state=false`) of `info=GeneratorArea` on AreaN: fire if PorteN latest first bool is `false` (**door branch**) **or** either player-N wrist is within **1 m** of `Object Bound` message named `GenerateurN` AABB `(string name, Vector3, Vector3)` (**hand branch**). Pairing: AreaN↔PorteN↔GenerateurN↔player N. On fire → State/Evidence + `(Gamma, BatteryId)` for the writer. |
+
+Catalogue payload types:
+
+| Topic | Type |
+|-------|------|
+| `Porte1 ouverture`, `Porte2 ouverture` | `(bool, Vector3)` |
+| `Area1`, `Area2` | `(int id, bool state, string info)` |
+| `Object Bound` | `(string name, Vector3, Vector3)` — use `Generateur1` / `Generateur2` |
+| `1-LeftWrist`, `1-RightWrist`, `2-LeftWrist`, `2-RightWrist` | `Tuple<Vector3, Vector3>` (position, orientation) — position = Item1 |
+
+Wire order (Analysis): substrate → Logic topics (union of enabled units) → Battery discovery → (if FirstUnit and/or Node3 enabled) resolve output → importers → unit(s) → Evidence → writer; RegulationDecisionWithBattery → writer → persist `Logigram1.State` / `Logigram1.Outcome` → print path. Empty `EnabledUnits` → substrate only (no analysis Dataset).

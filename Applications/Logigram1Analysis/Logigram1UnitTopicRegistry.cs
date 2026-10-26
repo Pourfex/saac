@@ -11,12 +11,15 @@ namespace Logigram1Analysis
 
     /// <summary>
     /// Maps enabled Logigram 1 Logic unit ids to AD-7 PSI topic names required as Unity→Psi inputs.
-    /// Story 2.2 stub: <see cref="FirstUnitId"/> declares nodes 1–2 source topics; story 2.4 fills the unit.
+    /// <see cref="FirstUnitId"/> = nodes 1–2; <see cref="Node3UnitId"/> = node 3 (door/hand leave-zone).
     /// </summary>
     public static class Logigram1UnitTopicRegistry
     {
-        /// <summary>Stub-enabled first Logic unit id (default config; unit body arrives in 2.4).</summary>
+        /// <summary>First Logic unit id (nodes 1–2).</summary>
         public const string FirstUnitId = "Logigram1.FirstUnit";
+
+        /// <summary>Node-3 Logic unit id (door-closed / hand-near + leave GeneratorArea → Gamma C).</summary>
+        public const string Node3UnitId = "Logigram1.Node3";
 
         /// <summary>
         /// AD-7 source topics for <see cref="FirstUnitId"/> (exact spelling/case/spaces).
@@ -33,6 +36,23 @@ namespace Logigram1Analysis
         });
 
         /// <summary>
+        /// AD-7 source topics for <see cref="Node3UnitId"/> (exact spelling/case/spaces).
+        /// Includes Porte, Area, <c>Object Bound</c> (Generateur1/2 AABB), and player wrist streams.
+        /// </summary>
+        public static readonly IReadOnlyList<string> Node3Topics = Array.AsReadOnly(new[]
+        {
+            "Porte1 ouverture",
+            "Porte2 ouverture",
+            "Area1",
+            "Area2",
+            "Object Bound",
+            "1-LeftWrist",
+            "1-RightWrist",
+            "2-LeftWrist",
+            "2-RightWrist",
+        });
+
+        /// <summary>
         /// Looks up required topic names for a single unit id.
         /// </summary>
         /// <param name="unitId">Enabled unit id from config.</param>
@@ -43,6 +63,12 @@ namespace Logigram1Analysis
             if (string.Equals(unitId, FirstUnitId, StringComparison.Ordinal))
             {
                 topics = FirstUnitTopics;
+                return true;
+            }
+
+            if (string.Equals(unitId, Node3UnitId, StringComparison.Ordinal))
+            {
+                topics = Node3Topics;
                 return true;
             }
 
