@@ -42,6 +42,81 @@ namespace Visualizations.Tests
         }
 
         [TestMethod]
+        public void LogigramOutcomeVisualizationObject_HasVisualizationObjectAttribute()
+        {
+            VisualizationObjectAttribute attribute = typeof(LogigramOutcomeVisualizationObject)
+                .GetCustomAttribute<VisualizationObjectAttribute>();
+
+            Assert.IsNotNull(attribute);
+            Assert.AreEqual("Logigram Outcome", attribute.CommandText);
+        }
+
+        [TestMethod]
+        public void LogigramOutcomeVisualizationObject_BindsToLogigram1ContractType()
+        {
+            Type visualizationType = typeof(LogigramOutcomeVisualizationObject);
+            Type baseType = visualizationType.BaseType;
+
+            Assert.IsNotNull(baseType);
+            Assert.IsTrue(baseType.IsGenericType);
+            Assert.AreEqual(typeof(StreamValueVisualizationObject<>), baseType.GetGenericTypeDefinition());
+            Assert.AreEqual(typeof(LogigramOutcome), baseType.GetGenericArguments()[0]);
+        }
+
+        [TestMethod]
+        public void FormatDisplayText_Outcome_Null_ReturnsHonestEmptyLabel()
+        {
+            Assert.AreEqual(
+                LogigramOutcomeVisualizationObject.EmptyDisplayText,
+                LogigramOutcomeVisualizationObject.FormatDisplayText(null));
+            Assert.AreEqual("no outcome", LogigramOutcomeVisualizationObject.FormatDisplayText(null));
+        }
+
+        [TestMethod]
+        public void FormatDisplayText_Outcome_WithGamma_ShowsRegulationAndBatteryId()
+        {
+            var outcome = new LogigramOutcome
+            {
+                Regulation = LogigramRegulation.Gamma,
+                BatteryId = 7,
+            };
+
+            Assert.AreEqual("Gamma BatteryId=7", LogigramOutcomeVisualizationObject.FormatDisplayText(outcome));
+        }
+
+        [TestMethod]
+        public void FormatDisplayText_Outcome_NullRegulation_ShowsAbsentNotAlpha()
+        {
+            var outcome = new LogigramOutcome { BatteryId = 2 };
+
+            Assert.AreEqual("absent BatteryId=2", LogigramOutcomeVisualizationObject.FormatDisplayText(outcome));
+            Assert.IsFalse(
+                LogigramOutcomeVisualizationObject.FormatDisplayText(outcome)
+                    .IndexOf("Alpha", StringComparison.Ordinal) >= 0);
+        }
+
+        [TestMethod]
+        public void LogigramOutcomeVisualizationObject_SetCurrentValue_UpdatesDisplayText()
+        {
+            var visualization = new LogigramOutcomeVisualizationObject();
+            Assert.AreEqual(LogigramOutcomeVisualizationObject.EmptyDisplayText, visualization.DisplayText);
+
+            DateTime now = DateTime.UtcNow;
+            visualization.SetCurrentValue(
+                new Message<LogigramOutcome>(
+                    new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 1 },
+                    now,
+                    now,
+                    0,
+                    0));
+
+            Assert.AreEqual("Gamma BatteryId=1", visualization.DisplayText);
+
+            visualization.SetCurrentValue(null);
+            Assert.AreEqual(LogigramOutcomeVisualizationObject.EmptyDisplayText, visualization.DisplayText);
+        }
+
+        [TestMethod]
         public void LogigramStateVisualizationObject_BindsToLogigram1ContractType()
         {
             Type visualizationType = typeof(LogigramStateVisualizationObject);

@@ -16,14 +16,14 @@ namespace Logigram1Analysis.Tests
     using SAAC.PsiFormats;
 
     /// <summary>
-    /// I/O matrix for Spawn→Finish LIFO Battery boundary discovery (AD-6 / FR5).
+    /// I/O matrix for Spawn→Finish FIFO Battery boundary discovery (AD-6 / FR5).
     /// </summary>
     [TestClass]
     public class BatteryBoundaryDiscoveryTests
     {
         private static readonly DateTime T0 = new DateTime(2026, 3, 1, 12, 0, 0, DateTimeKind.Utc);
 
-        /// <summary>Multi-Battery store: distinct segments, no N↔M merge.</summary>
+        /// <summary>Multi-Battery store: distinct segments, no N↔M merge (FIFO close order).</summary>
         [TestMethod]
         public void TrySegment_MultiBattery_ReturnsDistinctScopesInCloseOrder()
         {
@@ -43,18 +43,18 @@ namespace Logigram1Analysis.Tests
                 error);
 
             Assert.AreEqual(2, segments.Count);
-            Assert.AreEqual(20, segments[0].BatteryId);
-            Assert.AreEqual(T0.AddSeconds(5), segments[0].StartOriginatingTime);
+            Assert.AreEqual(10, segments[0].BatteryId);
+            Assert.AreEqual(T0, segments[0].StartOriginatingTime);
             Assert.AreEqual(T0.AddSeconds(10), segments[0].EndOriginatingTime);
-            Assert.AreEqual(10, segments[1].BatteryId);
-            Assert.AreEqual(T0, segments[1].StartOriginatingTime);
+            Assert.AreEqual(20, segments[1].BatteryId);
+            Assert.AreEqual(T0.AddSeconds(5), segments[1].StartOriginatingTime);
             Assert.AreEqual(T0.AddSeconds(15), segments[1].EndOriginatingTime);
             Assert.IsNull(error);
         }
 
-        /// <summary>LIFO overlap: later Spawn finishes before earlier; earlier stays open.</summary>
+        /// <summary>FIFO overlap: Finish closes the oldest open Spawn; later Spawn stays open.</summary>
         [TestMethod]
-        public void TrySegment_LifoOverlap_FinishClosesMostRecentOnly()
+        public void TrySegment_FifoOverlap_FinishClosesOldestOnly()
         {
             var spawns = new List<(int, DateTime)>
             {
@@ -70,8 +70,8 @@ namespace Logigram1Analysis.Tests
             Assert.IsTrue(BatteryBoundaryDiscovery.TrySegment(spawns, finishes, out IReadOnlyList<BatterySegment> segments, out _));
 
             Assert.AreEqual(2, segments.Count);
-            Assert.AreEqual(2, segments[0].BatteryId);
-            Assert.AreEqual(1, segments[1].BatteryId);
+            Assert.AreEqual(1, segments[0].BatteryId);
+            Assert.AreEqual(2, segments[1].BatteryId);
         }
 
         /// <summary>Same originating time: Spawn sorts before Finish so the segment closes.</summary>
@@ -91,9 +91,9 @@ namespace Logigram1Analysis.Tests
             Assert.AreEqual(T0, segments[0].EndOriginatingTime);
         }
 
-        /// <summary>Equal-time Spawns preserve input order: first Spawn is closed last (LIFO).</summary>
+        /// <summary>Equal-time Spawns preserve input order: first Spawn is closed first (FIFO).</summary>
         [TestMethod]
-        public void TrySegment_EqualTimeSpawns_PreserveInputOrder_FirstClosedLast()
+        public void TrySegment_EqualTimeSpawns_PreserveInputOrder_FirstClosedFirst()
         {
             var spawns = new List<(int, DateTime)>
             {
@@ -111,13 +111,13 @@ namespace Logigram1Analysis.Tests
                 error);
 
             Assert.AreEqual(2, segments.Count);
-            Assert.AreEqual(2, segments[0].BatteryId);
-            Assert.AreEqual(1, segments[1].BatteryId);
+            Assert.AreEqual(1, segments[0].BatteryId);
+            Assert.AreEqual(2, segments[1].BatteryId);
         }
 
-        /// <summary>Finish with empty stack → explicit fail; no invented id.</summary>
+        /// <summary>Finish with empty queue → explicit fail; no invented id.</summary>
         [TestMethod]
-        public void TrySegment_FinishWithEmptyStack_FailsExplicitly()
+        public void TrySegment_FinishWithEmptyQueue_FailsExplicitly()
         {
             var finishes = new List<DateTime> { T0 };
 
@@ -129,10 +129,10 @@ namespace Logigram1Analysis.Tests
                     out string error));
 
             Assert.AreEqual(0, segments.Count);
-            StringAssert.Contains(error, "empty open-Spawn stack");
+            StringAssert.Contains(error, "empty open-Spawn queue");
         }
 
-        /// <summary>Unclosed Spawn at end → explicit fail listing open BatteryId(s).</summary>
+        /// <summary>Unclosed Spawn at end → explicit fail listing remaining open BatteryId(s) (FIFO closed the oldest).</summary>
         [TestMethod]
         public void TrySegment_UnclosedSpawn_FailsListingOpenIds()
         {
@@ -148,7 +148,8 @@ namespace Logigram1Analysis.Tests
 
             Assert.AreEqual(0, segments.Count);
             StringAssert.Contains(error, "Unclosed BatterySpawn");
-            StringAssert.Contains(error, "3");
+            // One Finish closes oldest Spawn (3); only Battery 4 remains open.
+            StringAssert.Contains(error, "open BatteryId(s): 4");
         }
 
         /// <summary>Zero segments (streams conceptually present, no matching start events) → fail.</summary>

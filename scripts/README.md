@@ -2,6 +2,44 @@
 
 This directory contains optional scripts for SAAC developers.
 
+## Run-Logigram1.ps1 (main entry)
+
+One command for the full Logigram 1 loop: **build → Visualizations.dll → re-run analysis → open PsiStudio** (Casper video + analysis, Logigram layout). Unit tests are opt-in.
+
+```powershell
+cd saac
+.\scripts\Run-Logigram1.ps1
+```
+
+Useful variants:
+
+```powershell
+# Full loop (auto-stops PsiStudio if needed so Viz can rebuild the DLL, then reopens it)
+.\scripts\Run-Logigram1.ps1
+
+# Same + unit tests after Build
+.\scripts\Run-Logigram1.ps1 -Tests
+
+# After Logic-only change: rebuild, re-analyze, open (skip viz)
+.\scripts\Run-Logigram1.ps1 -Steps Build,Analysis,Open
+
+# Viz-only change
+.\scripts\Run-Logigram1.ps1 -Steps Viz,Open -SkipAnalysis
+
+# Re-open PsiStudio only
+.\scripts\Run-Logigram1.ps1 -Steps Open
+```
+
+**Steps** (extend this list as epics grow): `Build`, `Viz`, `Analysis`, `Open` (+ `Test` via `-Tests`).
+
+Related tools:
+
+| Script / app | Role |
+|--------------|------|
+| `Run-Logigram1.ps1` | Orchestrator |
+| `Open-LogigramPsiStudio.ps1` | Thin wrapper → `-Steps Open` |
+| `Applications/OpenLogigramPsiStudio/` | Builds `Casper5.WithLogigram1.pds` + launches PsiStudio |
+
 ## Setup-DevSymlinks.ps1
 
 Optional script for creating symbolic links for shared files across multiple applications.

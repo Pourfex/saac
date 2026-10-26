@@ -120,6 +120,19 @@ namespace Logigram1.Tests
             Assert.AreEqual(typeof(LogigramRegulation?), typeof(LogigramOutcome).GetProperty(nameof(LogigramOutcome.Regulation)).PropertyType);
         }
 
+        /// <summary>ToString feeds PsiStudio Messages legend / Outcome viz without inventing regulation.</summary>
+        [TestMethod]
+        public void LogigramOutcome_ToString_ShowsRegulationOrAbsentAndBatteryId()
+        {
+            Assert.AreEqual("absent BatteryId=0", new LogigramOutcome().ToString());
+            Assert.AreEqual(
+                "Gamma BatteryId=42",
+                new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 42 }.ToString());
+            Assert.AreEqual(
+                "N/A BatteryId=1",
+                new LogigramOutcome { Regulation = LogigramRegulation.NA, BatteryId = 1 }.ToString());
+        }
+
         /// <summary>Contracts project must stay Psi-free (Additional Assemblies safe).</summary>
         [TestMethod]
         public void Logigram1Csproj_HasNoMicrosoftPsiPackageReference()

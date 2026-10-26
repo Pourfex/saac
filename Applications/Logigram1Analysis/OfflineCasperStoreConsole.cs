@@ -189,7 +189,7 @@ namespace Logigram1Analysis
                     return 1;
                 }
 
-                stdout.WriteLine($"Battery segments ({batterySegments.Count}) [Spawn→Finish LIFO]:");
+                stdout.WriteLine($"Battery segments ({batterySegments.Count}) [Spawn→Finish FIFO]:");
                 foreach (BatterySegment segment in batterySegments)
                 {
                     stdout.WriteLine(

@@ -14,7 +14,7 @@ namespace Logigram1Analysis
     using SAAC.PsiFormats;
 
     /// <summary>
-    /// Discovers Battery analysis scopes via the locked AD-6 BOUNDARY_RULE (Spawn→Finish, LIFO stack).
+    /// Discovers Battery analysis scopes via the locked AD-6 BOUNDARY_RULE (Spawn→Finish, FIFO queue).
     /// See <c>Components/Logigram1/README.md</c> and this type's remarks — never invents Battery ids.
     /// </summary>
     /// <remarks>
@@ -23,8 +23,8 @@ namespace Logigram1Analysis
     /// end at the paired <c>BatteryFinish</c> (<see cref="PsiBatteryFinish"/>) originating time.
     /// </para>
     /// <para>
-    /// JOIN_KEY LIFO: push Spawn <c>BatteryId</c> on open stack; Finish pops the most recent still-open id
-    /// (Finish has no id in PreTest.081 / Unity). Fail on empty-stack Finish, unclosed Spawns at end,
+    /// JOIN_KEY FIFO: enqueue Spawn <c>BatteryId</c> on an open queue; Finish dequeues the oldest still-open id
+    /// (Finish has no id in PreTest.081 / Unity). Fail on empty-queue Finish, unclosed Spawns at end,
     /// missing streams, or zero closed segments.
     /// </para>
     /// </remarks>
@@ -37,7 +37,7 @@ namespace Logigram1Analysis
         public const string FinishStreamName = "BatteryFinish";
 
         /// <summary>
-        /// Segments a store Dataset using exact stream-name lookup and the locked Spawn→Finish LIFO rule.
+        /// Segments a store Dataset using exact stream-name lookup and the locked Spawn→Finish FIFO rule.
         /// </summary>
         /// <param name="dataset">Loaded Psi Dataset (connectors already validated by the console).</param>
         /// <param name="findStreamByExactName">
@@ -95,7 +95,7 @@ namespace Logigram1Analysis
         }
 
         /// <summary>
-        /// Applies the LIFO Spawn→Finish rule to in-memory timed events (unit-testable core).
+        /// Applies the FIFO Spawn→Finish rule to in-memory timed events (unit-testable core).
         /// </summary>
         /// <param name="spawns">Spawn events as (BatteryId, originating time).</param>
         /// <param name="finishes">Finish originating times (no id on Finish payload).</param>
@@ -143,34 +143,34 @@ namespace Logigram1Analysis
                     return left.IsSpawn ? -1 : 1;
                 }
 
-                // Same kind + equal time: keep earlier inputs earlier before LIFO push/pop.
+                // Same kind + equal time: keep earlier inputs earlier before FIFO enqueue/dequeue.
                 return left.Ordinal.CompareTo(right.Ordinal);
             });
 
-            var openStack = new Stack<(int BatteryId, DateTime Start)>();
+            var openQueue = new Queue<(int BatteryId, DateTime Start)>();
             var closed = new List<BatterySegment>();
 
             foreach ((bool isSpawn, int batteryId, DateTime time, int _) in timeline)
             {
                 if (isSpawn)
                 {
-                    openStack.Push((batteryId, time));
+                    openQueue.Enqueue((batteryId, time));
                     continue;
                 }
 
-                if (openStack.Count == 0)
+                if (openQueue.Count == 0)
                 {
-                    error = "BatteryFinish arrived with an empty open-Spawn stack (Spawn→Finish LIFO); no invented Battery id.";
+                    error = "BatteryFinish arrived with an empty open-Spawn queue (Spawn→Finish FIFO); no invented Battery id.";
                     return false;
                 }
 
-                (int openId, DateTime start) = openStack.Pop();
+                (int openId, DateTime start) = openQueue.Dequeue();
                 closed.Add(new BatterySegment(openId, start, time));
             }
 
-            if (openStack.Count > 0)
+            if (openQueue.Count > 0)
             {
-                string openIds = string.Join(", ", openStack.Select(entry => entry.BatteryId).Reverse());
+                string openIds = string.Join(", ", openQueue.Select(entry => entry.BatteryId));
                 error = $"Unclosed BatterySpawn at session end (open BatteryId(s): {openIds}); Spawn→Finish rule requires a Finish for each Spawn.";
                 return false;
             }

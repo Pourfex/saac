@@ -28,5 +28,18 @@ namespace SAAC.Logigram1
         /// Gets or sets the canonical Battery identity from <c>BatterySpawn.BatteryId</c> when a Battery scope is supplied (AD-6).
         /// </summary>
         public int BatteryId { get; set; }
+
+        /// <summary>
+        /// Returns a PsiStudio-friendly label (Messages legend / Outcome viz shell).
+        /// Does not invent a regulation when <see cref="Regulation"/> is null.
+        /// </summary>
+        /// <returns>Regulation contract label + BatteryId, or an honest absent label.</returns>
+        public override string ToString()
+        {
+            string regulation = this.Regulation.HasValue
+                ? LogigramRegulationLabels.ToContractLabel(this.Regulation.Value)
+                : "absent";
+            return $"{regulation} BatteryId={this.BatteryId}";
+        }
     }
 }

@@ -17,8 +17,8 @@ Regulation alphabet (typed on `LogigramRegulation`): **Alpha | Beta | Gamma | N/
 Sole scheme for Logigram state, outcomes, evidence, and viz (replaces AD-12 session-only envelopes):
 
 - **BOUNDARY_RULE = Spawn→Finish:** Start = each `BatterySpawn` originating time; End = paired `BatteryFinish` originating time.
-- **JOIN_KEY = LIFO stack:** On Spawn, push `BatteryId`; on Finish, pop the most recent still-open id and close that segment. Canonical `BatteryId` (`int`) always comes from `BatterySpawn.BatteryId` (Finish carries none in PreTest.081 / Unity).
-- Fail explicitly if Finish arrives with an empty stack, if any Spawn remains open at session end, if required streams are missing, or if zero segments are discovered — never invent keys or silently merge Battery N with Battery M.
+- **JOIN_KEY = FIFO queue:** On Spawn, enqueue `BatteryId`; on Finish, dequeue the oldest still-open id and close that segment. Canonical `BatteryId` (`int`) always comes from `BatterySpawn.BatteryId` (Finish carries none in PreTest.081 / Unity).
+- Fail explicitly if Finish arrives with an empty queue, if any Spawn remains open at session end, if required streams are missing, or if zero segments are discovered — never invent keys or silently merge Battery N with Battery M.
 - Envelope field: `int BatteryId` only — no `BatteryIndex` / string fork.
 
 Store payload types (Casper / Unity exporters, despite older string-topic wording elsewhere):

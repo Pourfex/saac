@@ -28,6 +28,7 @@
 - Never build individual psi `.csproj` files alone — `SolutionDir` breaks and packages land under `C:\Build\PsiPackages`.
 - Missing `Microsoft.Psi.*-beta-SAAC` on restore means the local feed lacks that package; rebuild Psi from root `Psi.sln` (Release | Any CPU or x64), then clear cache + restore.
 - Author verification is in **PsiStudio** (load/run the pipeline or plugin). Prefer building the touched app/component so Alexis can test there; do not assume CI or a documented `dotnet test` gate.
+- Logigram 1 local loop: from `saac/`, `.\scripts\Run-Logigram1.ps1` (Build → Viz → Analysis → Open; `-Tests` opt-in). Full options below under **Logigram local verify**.
 
 ## Conventions that differ from defaults
 
@@ -40,3 +41,42 @@
 - Optional `scripts/Setup-DevSymlinks.ps1` for shared `UiGenerator.cs` — do not commit while symlinks are active.
 
 <!-- /bmad:context -->
+
+## Logigram local verify (manual — keep across bmad refresh)
+
+From `saac/`, prefer:
+
+```powershell
+.\scripts\Run-Logigram1.ps1
+```
+
+Default steps: **Build → Viz → Analysis → Open**. Stops PsiStudio automatically before Test/Viz if it holds `Visualizations.dll` locks, then Open relaunches it. Extend this script when new verify steps appear (graph viz, CSV, …); do not invent ad-hoc one-offs. Details also in `scripts/README.md`.
+
+### Common invocations
+
+```powershell
+.\scripts\Run-Logigram1.ps1                              # full default loop
+.\scripts\Run-Logigram1.ps1 -Tests                       # same + unit tests after Build
+.\scripts\Run-Logigram1.ps1 -Steps Viz,Open              # viz-only change
+.\scripts\Run-Logigram1.ps1 -Steps Build,Analysis,Open   # logic change, skip viz
+.\scripts\Run-Logigram1.ps1 -Steps Analysis,Open         # re-analyze + reopen
+.\scripts\Run-Logigram1.ps1 -Steps Open                  # reopen PsiStudio only
+.\scripts\Run-Logigram1.ps1 -SkipAnalysis                # reuse existing analysis store
+```
+
+### Parameters
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `-Steps` | `All` | Pipeline subset. `All` = Build, Viz, Analysis, Open (no Test). Values: `All`, `Build`, `Test`, `Viz`, `Analysis`, `Open` (array OK). |
+| `-Tests` | off | Opt-in: insert `Test` after `Build`. |
+| `-SkipBuild` / `-SkipViz` / `-SkipAnalysis` / `-SkipOpen` | off | Drop that step from the active list. |
+| `-Configuration` | `Debug` | `dotnet` `-c`. |
+| `-Platform` | `x64` | Build platform. |
+| `-CasperPds` | `..\Ressources\Casper81\Casper5\Casper5.pds` | Input Casper Dataset (never mutate). |
+| `-Logigram1Config` | `Applications\Logigram1Analysis\logigram1.json` | Analysis config. |
+| `-PsiStudio` | `..\psi\...\Microsoft.Psi.PsiStudio.exe` (Release net472) | PsiStudio exe. |
+| `-Layout` | `Logigram` | PsiStudio layout name. |
+| `-NoLaunch` | off | Build combined `.pds` but do not start PsiStudio. |
+
+Related: `scripts/Open-LogigramPsiStudio.ps1` → thin wrapper for `-Steps Open`. Combined catalog: `Casper5.WithLogigram1.pds` (via `OpenLogigramPsiStudio`). Additional Assemblies: `build/bin/Components/Visualizations/x64/Debug/net48/Visualizations.dll`.
