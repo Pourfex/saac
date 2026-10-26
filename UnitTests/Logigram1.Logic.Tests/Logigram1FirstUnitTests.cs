@@ -87,9 +87,43 @@ namespace Logigram1.Logic.Tests
             StringAssert.Contains(evidence[0].NodeOrPathId, "node-1");
         }
 
-        /// <summary>SEEN_SCOPE B: same module id again (any Battery) does not re-fire node 1.</summary>
+        /// <summary>Same module id again on the same Battery does not re-fire node 1.</summary>
         [TestMethod]
-        public void FirstUnit_RepeatModuleId_DoesNotRefireNode1()
+        public void FirstUnit_RepeatModuleId_SameBattery_DoesNotRefireNode1()
+        {
+            var states = new List<LogigramState>();
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)>
+            {
+                (1, start, start.AddSeconds(5)),
+            };
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.FirstUnit_RepeatModuleId_SameBattery_DoesNotRefireNode1)))
+            {
+                var unit = new Logigram1FirstUnit(pipeline, scopes);
+                unit.StateOut.Do(state => states.Add(CloneState(state)));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(ValueTuple<int, string>, DateTime)>
+                        {
+                            (new ValueTuple<int, string>(9, "OK"), start.AddSeconds(1)),
+                            (new ValueTuple<int, string>(9, "OK"), start.AddSeconds(2)),
+                        })
+                    .PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(1, unit.Node1FireCount);
+            }
+
+            Assert.AreEqual(1, states.Count);
+            Assert.AreEqual(1, states[0].BatteryId);
+        }
+
+        /// <summary>Same module id on a later Battery still fires node 1 (per-Battery process).</summary>
+        [TestMethod]
+        public void FirstUnit_SameModuleId_OtherBattery_FiresNode1Again()
         {
             var states = new List<LogigramState>();
             DateTime start = UniqueStart();
@@ -99,7 +133,7 @@ namespace Logigram1.Logic.Tests
                 (2, start.AddSeconds(10), start.AddSeconds(15)),
             };
 
-            using (Pipeline pipeline = Pipeline.Create(nameof(this.FirstUnit_RepeatModuleId_DoesNotRefireNode1)))
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.FirstUnit_SameModuleId_OtherBattery_FiresNode1Again)))
             {
                 var unit = new Logigram1FirstUnit(pipeline, scopes);
                 unit.StateOut.Do(state => states.Add(CloneState(state)));
@@ -115,11 +149,69 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
             }
 
-            Assert.AreEqual(1, states.Count);
+            Assert.AreEqual(2, states.Count);
             Assert.AreEqual(1, states[0].BatteryId);
+            Assert.AreEqual(2, states[1].BatteryId);
+        }
+
+        /// <summary>Battery B door+select without Battery B node 1 must not emit Gamma (even if A had node 1).</summary>
+        [TestMethod]
+        public void FirstUnit_Node2OnBatteryWithoutItsOwnNode1_NoGamma()
+        {
+            var outcomes = new List<LogigramOutcome>();
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)>
+            {
+                (1, start, start.AddSeconds(8)),
+                (2, start.AddSeconds(10), start.AddSeconds(20)),
+            };
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.FirstUnit_Node2OnBatteryWithoutItsOwnNode1_NoGamma)))
+            {
+                var unit = new Logigram1FirstUnit(pipeline, scopes);
+                var writer = new LogigramOutcomeWriter(pipeline);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
+                writer.Out.Do(o => outcomes.Add(new LogigramOutcome
+                {
+                    Regulation = o.Regulation,
+                    BatteryId = o.BatteryId,
+                }));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(ValueTuple<int, string>, DateTime)>
+                        {
+                            (new ValueTuple<int, string>(3, "OK"), start.AddSeconds(1)),
+                        })
+                    .PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(ValueTuple<bool, Vector3>, DateTime)>
+                        {
+                            (new ValueTuple<bool, Vector3>(false, default), start.AddSeconds(12)),
+                        })
+                    .PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(string, DateTime)>
+                        {
+                            ("6V", start.AddSeconds(12.5)),
+                        })
+                    .PipeTo(unit.AddTopicInput<string>("M1-SelectModule"));
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(0, unit.Node2FireCount);
+                Assert.AreEqual(0, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.AreEqual(0, outcomes.Count);
         }
 
         /// <summary>Door close + Select within 2s after node 1 → node 2 + Gamma via writer.</summary>

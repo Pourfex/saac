@@ -14,9 +14,10 @@ namespace SAAC.Logigram1.Logic
 
     /// <summary>
     /// <c>Logigram1.FirstUnit</c> spanning Logigramme1.md nodes 1–2 (generation-success / proactive-close).
-    /// Derives node 1 from session-new <c>Module status</c> ids; derives node 2 only after node 1 when
-    /// door-closed arms a 2s window and SelectModule / Validation fires inside it; on each node-2 fire
-    /// emits Battery-scoped Gamma for <see cref="LogigramOutcomeWriter.RegulationDecisionWithBatteryIn"/>.
+    /// Process is <b>per Battery</b>: node 1 from Battery-new <c>Module status</c> ids; node 2 only after
+    /// that same Battery’s node 1 when door-closed arms a 2s window and SelectModule / Validation fires
+    /// inside it; on each node-2 fire emits Battery-scoped Gamma for
+    /// <see cref="LogigramOutcomeWriter.RegulationDecisionWithBatteryIn"/>.
     /// Does not invent Outcome — writer remains sole Outcome producer. No node 3 / Alpha / Beta / gaze / speech.
     /// </summary>
     public class Logigram1FirstUnit
@@ -30,10 +31,10 @@ namespace SAAC.Logigram1.Logic
         private readonly Pipeline pipeline;
         private readonly string name;
         private readonly IReadOnlyList<(int BatteryId, DateTime Start, DateTime End)> batteryScopes;
-        private readonly HashSet<int> seenModuleIds = new HashSet<int>();
+        private readonly Dictionary<int, HashSet<int>> seenModuleIdsByBattery = new Dictionary<int, HashSet<int>>();
+        private readonly HashSet<int> batteriesWithNode1 = new HashSet<int>();
+        private readonly Dictionary<int, DateTime> node2ArmStartByBattery = new Dictionary<int, DateTime>();
         private int topicInputCount;
-        private bool node1HasFired;
-        private DateTime? node2ArmStart;
         private string? pendingNode2Topic;
         private string? pendingNode2Detail;
         private DateTime? pendingNode2Time;
@@ -216,16 +217,18 @@ namespace SAAC.Logigram1.Logic
         private void OnModuleStatus(ValueTuple<int, string> moduleStatus, DateTime originatingTime)
         {
             int moduleId = moduleStatus.Item1;
-            if (!this.seenModuleIds.Add(moduleId))
+            int batteryId = this.ResolveBatteryId(originatingTime);
+            HashSet<int> seenInBattery = this.GetOrCreateSeenModules(batteryId);
+            if (!seenInBattery.Add(moduleId))
             {
-                // SEEN_SCOPE B: id already seen this session (any Battery) — no node-1 fire.
+                // Same module id already seen on this Battery — no node-1 fire.
                 return;
             }
 
-            this.node1HasFired = true;
+            this.batteriesWithNode1.Add(batteryId);
             this.Node1FireCount++;
             this.EmitNodeFire(
-                status: $"node-1: Module status id={moduleId} (new this session)",
+                status: $"node-1: Module status id={moduleId} (new this Battery)",
                 evidenceId: $"node-1:Module status:id={moduleId}",
                 originatingTime: originatingTime);
 
@@ -235,16 +238,17 @@ namespace SAAC.Logigram1.Logic
 
         private void OnDoor(ValueTuple<bool, Vector3> door, string topicName, DateTime originatingTime)
         {
+            int batteryId = this.ResolveBatteryId(originatingTime);
             bool doorOpen = door.Item1;
             if (doorOpen)
             {
-                // Open does not arm and clears any armed window (no node-2 from an open door).
-                this.node2ArmStart = null;
+                // Open does not arm and clears this Battery’s armed window.
+                this.node2ArmStartByBattery.Remove(batteryId);
                 return;
             }
 
-            // Door closed (first bool false) arms / re-arms the 2s Select/Validation window.
-            this.node2ArmStart = originatingTime;
+            // Door closed (first bool false) arms / re-arms the 2s Select/Validation window for this Battery.
+            this.node2ArmStartByBattery[batteryId] = originatingTime;
 
             // Select/Validation may have been delivered before this door message despite a later
             // originating time (multi-source replay). Apply a pending trigger if it falls in-window.
@@ -279,14 +283,17 @@ namespace SAAC.Logigram1.Logic
 
         private void TryFireNode2(string topicName, string triggerDetail, DateTime originatingTime)
         {
-            // Buffer even before node 1 so a later node-1 / door-close can flush in-window.
-            if (!this.node1HasFired || !this.node2ArmStart.HasValue)
+            int batteryId = this.ResolveBatteryId(originatingTime);
+            bool hasNode1 = this.batteriesWithNode1.Contains(batteryId);
+            bool armed = this.node2ArmStartByBattery.TryGetValue(batteryId, out DateTime armStart);
+
+            // Buffer even before this Battery’s node 1 / arm so a later node-1 / door-close can flush.
+            if (!hasNode1 || !armed)
             {
                 this.StorePendingNode2TriggerIfEmpty(topicName, triggerDetail, originatingTime);
                 return;
             }
 
-            DateTime armStart = this.node2ArmStart.Value;
             if (originatingTime < armStart)
             {
                 return;
@@ -295,17 +302,17 @@ namespace SAAC.Logigram1.Logic
             if (originatingTime - armStart > Node2SelectValidationWindow)
             {
                 // Late: window expired; clear stale arm so a later close can re-arm cleanly.
-                this.node2ArmStart = null;
+                this.node2ArmStartByBattery.Remove(batteryId);
                 this.ClearPendingNode2Trigger();
                 return;
             }
 
             // Consume the arm so Select+Validation in the same window yield one node-2 (soit/soit).
-            this.node2ArmStart = null;
+            this.node2ArmStartByBattery.Remove(batteryId);
             this.ClearPendingNode2Trigger();
             this.Node2FireCount++;
 
-            int batteryId = this.EmitNodeFire(
+            this.EmitNodeFire(
                 status: $"node-2: door-closed + {triggerDetail} (within 2s; source {topicName})",
                 evidenceId: $"node-2:{topicName}:{triggerDetail}",
                 originatingTime: originatingTime);
@@ -317,6 +324,17 @@ namespace SAAC.Logigram1.Logic
                 (LogigramRegulation.Gamma, batteryId),
                 regulationTime);
             this.GammaDecisionEmitCount++;
+        }
+
+        private HashSet<int> GetOrCreateSeenModules(int batteryId)
+        {
+            if (!this.seenModuleIdsByBattery.TryGetValue(batteryId, out HashSet<int>? seen))
+            {
+                seen = new HashSet<int>();
+                this.seenModuleIdsByBattery[batteryId] = seen;
+            }
+
+            return seen;
         }
 
         private void TryFlushPendingNode2Trigger()

@@ -85,10 +85,16 @@ namespace OpenLogigramPsiStudio
                 }
 
                 Console.WriteLine("Launching PsiStudio with layout '" + layoutName + "' …");
+
+                // WorkingDirectory must be PsiStudio's bin folder. If cwd stays on saac (Run-Logigram1),
+                // PluginMap resolves bare names like Microsoft.Psi.Visualization.Windows.dll under saac,
+                // built-in visualizers fail to load, and right-click → Visualize crashes (null Latency metadata).
+                string psiStudioDir = Path.GetDirectoryName(psiStudioExe) ?? ".";
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = psiStudioExe,
                     Arguments = "\"" + combinedPds + "\"",
+                    WorkingDirectory = psiStudioDir,
                     UseShellExecute = true,
                 });
                 return 0;

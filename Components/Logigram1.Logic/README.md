@@ -22,8 +22,8 @@ Depends on contracts `Logigram1` upward.
 
 | Logigramme1.md node | Meaning | AD-7 PSI topic(s) | Derivation |
 |---------------------|---------|-------------------|------------|
-| **1** | Génération de module réussie | `Module status` | `(int id, string)` — fire when `id` was **not yet seen this session** (SEEN_SCOPE B: accumulates across Batteries). |
-| **2** | Porte fermée + select/validation within 2s | `Porte1 ouverture`, `Porte2 ouverture`, `M1-SelectModule`, `M2-SelectModule`, `M1-Validation`, `M2-Validation` | Door first bool `false` **arms** a **2s** window. Within the window, any non-empty `M?-SelectModule` **or** `M?-Validation == true` fires node 2 — **only if node 1 already fired**. On fire → State/Evidence + `(Gamma, BatteryId)` for the writer. Door open (`true`) does not arm. Validation `false` does not fire. |
+| **1** | Génération de module réussie | `Module status` | `(int id, string)` — fire when `id` was **not yet seen on that Battery** (per-Battery process; same id on another Battery can fire again). |
+| **2** | Porte fermée + select/validation within 2s | `Porte1 ouverture`, `Porte2 ouverture`, `M1-SelectModule`, `M2-SelectModule`, `M1-Validation`, `M2-Validation` | Door first bool `false` **arms** a **2s** window **for that Battery**. Within the window, any non-empty `M?-SelectModule` **or** `M?-Validation == true` fires node 2 — **only if that same Battery already had node 1**. On fire → State/Evidence + `(Gamma, BatteryId)` for the writer. Door open (`true`) does not arm. Validation `false` does not fire. |
 
 Catalogue payload types (Analysis importer map):
 

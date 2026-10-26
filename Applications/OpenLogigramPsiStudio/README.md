@@ -30,3 +30,5 @@ dotnet build Applications/OpenLogigramPsiStudio/OpenLogigramPsiStudio.csproj -c 
 | `--no-launch` | Only write the combined `.pds` |
 
 Save the **Logigram** layout once in PsiStudio (Layouts → save as `Logigram`) if the `.plo` is missing.
+
+The launcher sets PsiStudio’s working directory to its own `bin` folder so built-in plugins (`Microsoft.Psi.Visualization.Windows.dll`, etc.) load. Launching PsiStudio with cwd under `saac/` makes those assemblies miss and right-click **Visualize** crash (`NullReferenceException` in `InsertCustomAdapters`).

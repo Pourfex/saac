@@ -227,7 +227,7 @@ namespace Visualizations.Tests
         [TestMethod]
         public void TryParseNodeNumber_ParsesNode1AndNode2Prefixes()
         {
-            Assert.AreEqual(1, LogigramGraphVisualizationObject.TryParseNodeNumber("node-1: Module status id=7 (new this session)"));
+            Assert.AreEqual(1, LogigramGraphVisualizationObject.TryParseNodeNumber("node-1: Module status id=7 (new this Battery)"));
             Assert.AreEqual(2, LogigramGraphVisualizationObject.TryParseNodeNumber("node-2: door-closed + Validation (within 2s; source M1-Validation)"));
         }
 
@@ -243,62 +243,132 @@ namespace Visualizations.Tests
         [TestMethod]
         public void LogigramGraph_HappyScrub_Node1AndNode2HighlightCursorOnly()
         {
-            var state1 = new LogigramState { Status = "node-1: Module status id=1 (new this session)", BatteryId = 4 };
-            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state1));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state1));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state1));
+            const int underView = 4;
+            var state1 = new LogigramState { Status = "node-1: Module status id=1 (new this Battery)", BatteryId = 4 };
+            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state1, underView));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state1, underView));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state1, underView));
             Assert.AreEqual(
-                "node-1: Module status id=1 (new this session) BatteryId=4",
-                LogigramGraphVisualizationObject.FormatDisplayText(state1));
+                "Battery 4 | node-1: Module status id=1 (new this Battery)",
+                LogigramGraphVisualizationObject.FormatDisplayText(state1, underView));
 
             var state2 = new LogigramState { Status = "node-2: door-closed + SelectModule (within 2s; source M1-SelectModule)", BatteryId = 4 };
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state2));
-            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state2));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state2));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state2, underView));
+            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state2, underView));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state2, underView));
         }
 
         [TestMethod]
         public void LogigramGraph_HappyScrub_Node3HighlightCursorOnly()
         {
+            const int underView = 4;
             var state3 = new LogigramState { Status = "node-3: door-closed leave-zone", BatteryId = 4 };
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state3));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state3));
-            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state3));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state3, underView));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state3, underView));
+            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state3, underView));
             Assert.AreEqual(
-                "node-3: door-closed leave-zone BatteryId=4",
-                LogigramGraphVisualizationObject.FormatDisplayText(state3));
+                "Battery 4 | node-3: door-closed leave-zone",
+                LogigramGraphVisualizationObject.FormatDisplayText(state3, underView));
+        }
+
+        [TestMethod]
+        public void LogigramGraph_OtherBattery_DoesNotHighlight_HoldKeepsPrior()
+        {
+            var prior = new LogigramState { Status = "node-1: hit", BatteryId = 1 };
+            var other = new LogigramState { Status = "node-2: other", BatteryId = 2 };
+            DateTime t1 = new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc);
+            DateTime t2 = t1.AddSeconds(5);
+            DateTime heldTime;
+            LogigramState held = LogigramGraphVisualizationObject.HoldStateForBattery(
+                prior,
+                hasCursorValue: true,
+                cursorMessageTime: t1,
+                playhead: t1,
+                underViewBatteryId: 1,
+                previousHeld: null,
+                previousHeldTime: DateTime.MinValue,
+                out heldTime);
+            held = LogigramGraphVisualizationObject.HoldStateForBattery(
+                other,
+                hasCursorValue: true,
+                cursorMessageTime: t2,
+                playhead: t2,
+                underViewBatteryId: 1,
+                previousHeld: held,
+                previousHeldTime: heldTime,
+                out heldTime);
+            Assert.IsNotNull(held);
+            Assert.AreEqual(1, held.BatteryId);
+            Assert.AreEqual(t1, heldTime);
+            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, held, underViewBatteryId: 1));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, other, underViewBatteryId: 1));
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(
+                    new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 2 },
+                    underViewBatteryId: 1));
+        }
+
+        [TestMethod]
+        public void LogigramGraph_HoldClearsWhenPlayheadRewindsBeforeHeldMessage()
+        {
+            var prior = new LogigramState { Status = "node-2: hit", BatteryId = 1 };
+            DateTime tFire = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
+            DateTime tStart = tFire.AddSeconds(-9);
+            DateTime heldTime;
+            LogigramState held = LogigramGraphVisualizationObject.HoldStateForBattery(
+                prior,
+                hasCursorValue: true,
+                cursorMessageTime: tFire,
+                playhead: tFire,
+                underViewBatteryId: 1,
+                previousHeld: null,
+                previousHeldTime: DateTime.MinValue,
+                out heldTime);
+            Assert.IsNotNull(held);
+
+            held = LogigramGraphVisualizationObject.HoldStateForBattery(
+                cursor: null,
+                hasCursorValue: false,
+                cursorMessageTime: DateTime.MinValue,
+                playhead: tStart,
+                underViewBatteryId: 1,
+                previousHeld: held,
+                previousHeldTime: heldTime,
+                out heldTime);
+            Assert.IsNull(held);
+            Assert.AreEqual(DateTime.MinValue, heldTime);
         }
 
         [TestMethod]
         public void LogigramGraph_PartialCoverage_Node3NeverLitFromMissingStatus()
         {
             var state = new LogigramState { Status = "node-2: door-closed + Validation", BatteryId = 1 };
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state, underViewBatteryId: 1));
             Assert.IsFalse(
-                LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(null));
+                LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(null, underViewBatteryId: 1));
         }
 
         [TestMethod]
         public void LogigramGraph_UnparseableStatus_ShowsLabelWithoutPathHighlight()
         {
             var state = new LogigramState { Status = "waiting", BatteryId = 9 };
-            Assert.AreEqual("waiting BatteryId=9", LogigramGraphVisualizationObject.FormatDisplayText(state));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state));
+            Assert.AreEqual("Battery 9 | waiting", LogigramGraphVisualizationObject.FormatDisplayText(state, underViewBatteryId: 9));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, state, underViewBatteryId: 9));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(2, state, underViewBatteryId: 9));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(3, state, underViewBatteryId: 9));
         }
 
         [TestMethod]
         public void LogigramGraph_EmptyGap_HonestEmptyAndNoHighlights()
         {
             Assert.AreEqual(
-                LogigramGraphVisualizationObject.EmptyDisplayText,
-                LogigramGraphVisualizationObject.FormatDisplayText(null));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, null));
-            Assert.IsFalse(LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(null));
+                "Battery 1 | " + LogigramGraphVisualizationObject.EmptyDisplayText,
+                LogigramGraphVisualizationObject.FormatDisplayText(null, underViewBatteryId: 1));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, null, underViewBatteryId: 1));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(null, underViewBatteryId: 1));
 
             var visualization = new LogigramGraphVisualizationObject();
-            Assert.AreEqual(LogigramGraphVisualizationObject.EmptyDisplayText, visualization.DisplayText);
+            Assert.AreEqual("Battery 1 | " + LogigramGraphVisualizationObject.EmptyDisplayText, visualization.DisplayText);
             Assert.IsFalse(visualization.IsNode1Highlighted);
             Assert.IsFalse(visualization.IsNode2Highlighted);
             Assert.IsFalse(visualization.IsNode3Highlighted);
@@ -310,15 +380,18 @@ namespace Visualizations.Tests
         {
             Assert.IsTrue(
                 LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(
-                    new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 3 }));
+                    new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 3 },
+                    underViewBatteryId: 3));
             Assert.IsFalse(
                 LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(
-                    new LogigramOutcome { Regulation = null, BatteryId = 3 }));
+                    new LogigramOutcome { Regulation = null, BatteryId = 3 },
+                    underViewBatteryId: 3));
             Assert.IsFalse(
                 LogigramGraphVisualizationObject.IsTerminalCHighlightedFromOutcome(
-                    new LogigramOutcome { Regulation = LogigramRegulation.Alpha, BatteryId = 3 }));
+                    new LogigramOutcome { Regulation = LogigramRegulation.Alpha, BatteryId = 3 },
+                    underViewBatteryId: 3));
 
-            var visualization = new LogigramGraphVisualizationObject();
+            var visualization = new LogigramGraphVisualizationObject { BatteryId = 3 };
             visualization.SetCurrentOutcome(new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 3 });
             Assert.IsTrue(visualization.IsTerminalCHighlighted);
 
@@ -332,7 +405,7 @@ namespace Visualizations.Tests
         [TestMethod]
         public void LogigramGraph_SetCurrentValue_UpdatesHighlightsAndClearsOnNull()
         {
-            var visualization = new LogigramGraphVisualizationObject();
+            var visualization = new LogigramGraphVisualizationObject { BatteryId = 2 };
             DateTime now = DateTime.UtcNow;
 
             visualization.SetCurrentValue(
@@ -345,7 +418,7 @@ namespace Visualizations.Tests
 
             Assert.IsTrue(visualization.IsNode1Highlighted);
             Assert.IsFalse(visualization.IsNode2Highlighted);
-            StringAssert.Contains(visualization.DisplayText, "BatteryId=2");
+            StringAssert.Contains(visualization.DisplayText, "Battery 2 |");
 
             visualization.SetCurrentValue(
                 new Message<LogigramState>(
@@ -358,10 +431,17 @@ namespace Visualizations.Tests
             Assert.IsFalse(visualization.IsNode1Highlighted);
             Assert.IsTrue(visualization.IsNode2Highlighted);
 
-            visualization.SetCurrentValue(null);
+            // Gap / other Battery keeps last hold (scrub-friendly); clear only on unbind.
+            visualization.SetCurrentValue(
+                new Message<LogigramState>(
+                    new LogigramState { Status = "node-1: other", BatteryId = 9 },
+                    now,
+                    now,
+                    0,
+                    0));
             Assert.IsFalse(visualization.IsNode1Highlighted);
-            Assert.IsFalse(visualization.IsNode2Highlighted);
-            Assert.AreEqual(LogigramGraphVisualizationObject.EmptyDisplayText, visualization.DisplayText);
+            Assert.IsTrue(visualization.IsNode2Highlighted);
+            StringAssert.Contains(visualization.DisplayText, "node-2: hit");
         }
 
         [TestMethod]
