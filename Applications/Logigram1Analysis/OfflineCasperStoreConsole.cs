@@ -23,7 +23,8 @@ namespace Logigram1Analysis
     /// PreTest.081-shaped required streams without running a full replay.
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
-    /// When <c>Logigram1.FirstUnit</c> and/or <c>Logigram1.Node3</c> are enabled, runs derivation and persists analysis State/Outcome.
+    /// When <c>Logigram1.GammaPath</c> is enabled, runs the cycle FSM and persists analysis State/Outcome.
+    /// Legacy <c>Logigram1.FirstUnit</c> / <c>Logigram1.Node3</c> in EnabledUnits are warned and ignored.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -133,13 +134,38 @@ namespace Logigram1Analysis
                     return 1;
                 }
 
-                IReadOnlyList<string> requiredTopics = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                IReadOnlyList<string> runnableUnits = Logigram1UnitTopicRegistry.FilterRunnableUnits(
                     enabledUnits,
+                    out IReadOnlyList<string> legacyIgnored);
+                foreach (string legacyId in legacyIgnored)
+                {
+                    stderr.WriteLine(
+                        $"Warning: ignoring deprecated EnabledUnits id \"{legacyId}\" (use Logigram1.GammaPath).");
+                }
+
+                IReadOnlyList<string> requiredTopics = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                    runnableUnits,
                     out string unknownUnitId);
                 if (unknownUnitId != null)
                 {
                     stderr.WriteLine(
                         $"Unknown enabled Logic unit id \"{unknownUnitId}\": no topic registry entry.");
+                    return 1;
+                }
+
+                // Also fail unknown non-legacy ids that FilterRunnableUnits dropped without listing.
+                foreach (string rawId in enabledUnits ?? Array.Empty<string>())
+                {
+                    string unitId = rawId?.Trim();
+                    if (string.IsNullOrEmpty(unitId)
+                        || Logigram1UnitTopicRegistry.IsLegacyIgnoredUnitId(unitId)
+                        || string.Equals(unitId, Logigram1UnitTopicRegistry.GammaPathUnitId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    stderr.WriteLine(
+                        $"Unknown enabled Logic unit id \"{unitId}\": no topic registry entry.");
                     return 1;
                 }
 
@@ -196,14 +222,11 @@ namespace Logigram1Analysis
                         $"  BatteryId={segment.BatteryId} start={segment.StartOriginatingTime:o} end={segment.EndOriginatingTime:o}");
                 }
 
-                // Empty EnabledUnits → substrate + Battery discovery only (no unit / no output Dataset).
-                bool firstUnitEnabled = FirstUnitPipelineRunner.IsUnitEnabled(
-                    enabledUnits,
-                    Logigram1UnitTopicRegistry.FirstUnitId);
-                bool node3Enabled = FirstUnitPipelineRunner.IsUnitEnabled(
-                    enabledUnits,
-                    Logigram1UnitTopicRegistry.Node3UnitId);
-                if (!firstUnitEnabled && !node3Enabled)
+                // Empty / legacy-only EnabledUnits → substrate + Battery discovery only (no analysis Dataset).
+                bool gammaPathEnabled = FirstUnitPipelineRunner.IsUnitEnabled(
+                    runnableUnits,
+                    Logigram1UnitTopicRegistry.GammaPathUnitId);
+                if (!gammaPathEnabled)
                 {
                     return 0;
                 }
@@ -236,7 +259,7 @@ namespace Logigram1Analysis
                         batterySegments,
                         resolvedOutput,
                         fullPath,
-                        enabledUnits);
+                        runnableUnits);
                 }
                 catch (Exception exception)
                 {

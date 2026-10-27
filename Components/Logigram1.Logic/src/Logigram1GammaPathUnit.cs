@@ -1,4 +1,4 @@
-// <copyright file="Logigram1Node3Unit.cs" company="SAAC">
+// <copyright file="Logigram1GammaPathUnit.cs" company="SAAC">
 // Licensed under the CeCILL-C License. See LICENSE.md file in the project root for full license information.
 // This software is distributed under the CeCILL-C FREE SOFTWARE LICENSE AGREEMENT.
 // See https://cecill.info/licences/Licence_CeCILL-C_V1-en.html for details.
@@ -13,16 +13,20 @@ namespace SAAC.Logigram1.Logic
     using SAAC.Logigram1;
 
     /// <summary>
-    /// <c>Logigram1.Node3</c> — Logigramme1.md node 3 (door-closed leave-zone / hand-near-door → Gamma C).
-    /// Independently enableable; does not require FirstUnit, Alpha/Beta, gaze, or speech.
-    /// At player leave of <c>GeneratorArea</c> on AreaN, fires when PorteN is closed <b>or</b> a player-N
-    /// wrist is within 1 m of <c>Object Bound</c> GenerateurN AABB. Emits Battery-scoped State/Evidence
-    /// and pipes Gamma to <see cref="LogigramOutcomeWriter.RegulationDecisionWithBatteryIn"/>.
+    /// <c>Logigram1.GammaPath</c> — full Gamma-path cycle FSM (nodes 1→2→3→C).
+    /// Node 1 (Battery-new <c>Module status</c> id) starts a cycle and a 2s node-2 window from that
+    /// create time. Node 2 fires only when door is closed <b>and</b> Select/Validation occur together
+    /// inside that window → cycle reset, <b>no</b> Gamma. Node 3 is ineligible during the window;
+    /// after it expires unused, leave of <c>GeneratorArea</c> with door closed or hand-near
+    /// Generateur AABB → Gamma (C) via the designated writer. No Alpha/Beta/gaze/speech.
     /// </summary>
-    public class Logigram1Node3Unit
+    public class Logigram1GammaPathUnit
     {
         /// <summary>Canonical enabled-unit id (matches Analysis registry / config).</summary>
-        public const string UnitId = "Logigram1.Node3";
+        public const string UnitId = "Logigram1.GammaPath";
+
+        /// <summary>Post–node-1 window for door-closed + Select/Validation together (node 2).</summary>
+        public static readonly TimeSpan Node2Window = TimeSpan.FromSeconds(2);
 
         /// <summary>Hand-near distance threshold (meters) to Generateur AABB.</summary>
         public const float HandNearDistanceMeters = 1f;
@@ -33,14 +37,24 @@ namespace SAAC.Logigram1.Logic
         /// <summary>Player leave actor id on Area streams.</summary>
         public const int PlayerAreaId = -1;
 
+        private enum CyclePhase
+        {
+            Idle = 0,
+            Node2Window = 1,
+            Node3Eligible = 2,
+        }
+
         private readonly Pipeline pipeline;
         private readonly string name;
         private readonly IReadOnlyList<(int BatteryId, DateTime Start, DateTime End)> batteryScopes;
+        private readonly Dictionary<int, HashSet<int>> seenModuleIdsByBattery = new Dictionary<int, HashSet<int>>();
+        private readonly Dictionary<int, CyclePhase> phaseByBattery = new Dictionary<int, CyclePhase>();
+        private readonly Dictionary<int, DateTime> node1CreateByBattery = new Dictionary<int, DateTime>();
 
         // Latest door open flag per side (true = open). Absent → not closed.
         private readonly Dictionary<int, bool> doorOpenBySide = new Dictionary<int, bool>();
 
-        // Latest GenerateurN AABB corners (min/max not normalized until distance check).
+        // Latest GenerateurN AABB corners.
         private readonly Dictionary<int, (Vector3 A, Vector3 B)> generateurAabbBySide =
             new Dictionary<int, (Vector3, Vector3)>();
 
@@ -48,22 +62,27 @@ namespace SAAC.Logigram1.Logic
         private readonly Dictionary<string, Vector3> wristPositionByKey = new Dictionary<string, Vector3>(StringComparer.Ordinal);
 
         private int topicInputCount;
+
+        // Pending Select/Validation awaiting door-closed, keyed by BatteryId.
+        private readonly Dictionary<int, (string Topic, string Detail, DateTime Time)> pendingNode2ByBattery =
+            new Dictionary<int, (string, string, DateTime)>();
+
         private DateTime lastStateOriginatingTime = DateTime.MinValue;
         private DateTime lastEvidenceOriginatingTime = DateTime.MinValue;
         private DateTime lastRegulationOriginatingTime = DateTime.MinValue;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Logigram1Node3Unit"/> class.
+        /// Initializes a new instance of the <see cref="Logigram1GammaPathUnit"/> class.
         /// </summary>
         /// <param name="pipeline">Pipeline hosting the component.</param>
         /// <param name="batteryScopes">
         /// Closed Spawn→Finish segments for BatteryId stamping. Empty → every hit is unscoped (BatteryId 0).
         /// </param>
         /// <param name="name">Name of the component, prefix of its streams.</param>
-        public Logigram1Node3Unit(
+        public Logigram1GammaPathUnit(
             Pipeline pipeline,
             IReadOnlyList<(int BatteryId, DateTime Start, DateTime End)> batteryScopes,
-            string name = nameof(Logigram1Node3Unit))
+            string name = nameof(Logigram1GammaPathUnit))
         {
             this.pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             this.name = name;
@@ -89,8 +108,8 @@ namespace SAAC.Logigram1.Logic
 
         /// <summary>
         /// Gets Battery-scoped regulation decisions for the designated writer.
-        /// On each node-3 fire posts <see cref="LogigramRegulation.Gamma"/> with BatteryId;
-        /// pipe to <see cref="LogigramOutcomeWriter.RegulationDecisionWithBatteryIn"/>.
+        /// Posts <see cref="LogigramRegulation.Gamma"/> only on node-3 (C); pipe to
+        /// <see cref="LogigramOutcomeWriter.RegulationDecisionWithBatteryIn"/>.
         /// </summary>
         public Emitter<(LogigramRegulation Regulation, int BatteryId)> RegulationDecisionWithBatteryOut { get; }
 
@@ -103,11 +122,40 @@ namespace SAAC.Logigram1.Logic
         /// <summary>Gets how many Evidence messages were emitted.</summary>
         public long EvidenceEmitCount { get; private set; }
 
+        /// <summary>Gets how many derived node-1 events were emitted.</summary>
+        public long Node1FireCount { get; private set; }
+
+        /// <summary>Gets how many derived node-2 events were emitted.</summary>
+        public long Node2FireCount { get; private set; }
+
         /// <summary>Gets how many derived node-3 events were emitted.</summary>
         public long Node3FireCount { get; private set; }
 
         /// <summary>Gets how many Gamma decisions were posted for the writer.</summary>
         public long GammaDecisionEmitCount { get; private set; }
+
+        /// <summary>
+        /// Maps an AD-7 topic to Logigramme1.md node label (source-topic documentation).
+        /// </summary>
+        /// <param name="topicName">Exact AD-7 topic name.</param>
+        /// <returns><c>1</c>, <c>2</c>, or <c>3</c>.</returns>
+        public static string NodeLabelForTopic(string topicName)
+        {
+            if (string.Equals(topicName, "Module status", StringComparison.Ordinal))
+            {
+                return "1";
+            }
+
+            if (string.Equals(topicName, "Area1", StringComparison.Ordinal)
+                || string.Equals(topicName, "Area2", StringComparison.Ordinal)
+                || string.Equals(topicName, "Object Bound", StringComparison.Ordinal)
+                || topicName.EndsWith("Wrist", StringComparison.Ordinal))
+            {
+                return "3";
+            }
+
+            return "2";
+        }
 
         /// <summary>
         /// Minimum distance from a point to an AABB defined by two opposite corners.
@@ -125,7 +173,7 @@ namespace SAAC.Logigram1.Logic
         }
 
         /// <summary>
-        /// Adds a typed receiver for one Node3 topic. Call before the pipeline runs.
+        /// Adds a typed receiver for one AD-7 topic. Call before the pipeline runs.
         /// </summary>
         /// <typeparam name="T">Catalogue payload type for the topic stream.</typeparam>
         /// <param name="topicName">Exact AD-7 topic / stream name.</param>
@@ -219,36 +267,31 @@ namespace SAAC.Logigram1.Logic
             return null;
         }
 
-        private static bool TryParseWristKey(string topicName, out string wristKey, out int playerSide)
+        private static bool TryParseWristKey(string topicName, out string wristKey)
         {
             wristKey = string.Empty;
-            playerSide = 0;
 
             if (string.Equals(topicName, "1-LeftWrist", StringComparison.Ordinal))
             {
                 wristKey = "1-Left";
-                playerSide = 1;
                 return true;
             }
 
             if (string.Equals(topicName, "1-RightWrist", StringComparison.Ordinal))
             {
                 wristKey = "1-Right";
-                playerSide = 1;
                 return true;
             }
 
             if (string.Equals(topicName, "2-LeftWrist", StringComparison.Ordinal))
             {
                 wristKey = "2-Left";
-                playerSide = 2;
                 return true;
             }
 
             if (string.Equals(topicName, "2-RightWrist", StringComparison.Ordinal))
             {
                 wristKey = "2-Right";
-                playerSide = 2;
                 return true;
             }
 
@@ -274,40 +317,118 @@ namespace SAAC.Logigram1.Logic
         {
             this.TopicHitCount++;
 
-            int? doorSide = TryParseDoorSide(topicName);
-            if (doorSide.HasValue)
+            switch (topicName)
             {
-                this.OnDoor((ValueTuple<bool, Vector3>)(object)payload!, doorSide.Value);
-                return;
-            }
+                case "Module status":
+                    this.OnModuleStatus((ValueTuple<int, string>)(object)payload!, originatingTime);
+                    return;
 
-            int? areaSide = TryParseAreaSide(topicName);
-            if (areaSide.HasValue)
-            {
-                this.OnArea((ValueTuple<int, bool, string>)(object)payload!, areaSide.Value, originatingTime);
-                return;
-            }
+                case "Porte1 ouverture":
+                case "Porte2 ouverture":
+                    this.OnDoor((ValueTuple<bool, Vector3>)(object)payload!, topicName, originatingTime);
+                    return;
 
-            if (string.Equals(topicName, "Object Bound", StringComparison.Ordinal))
-            {
-                this.OnObjectBound((ValueTuple<string, Vector3, Vector3>)(object)payload!);
-                return;
-            }
+                case "M1-SelectModule":
+                case "M2-SelectModule":
+                    this.OnSelectModule((string)(object)payload!, topicName, originatingTime);
+                    return;
 
-            if (TryParseWristKey(topicName, out string wristKey, out _))
-            {
-                this.OnWrist(payload!, wristKey);
-                return;
-            }
+                case "M1-Validation":
+                case "M2-Validation":
+                    this.OnValidation((bool)(object)payload!, topicName, originatingTime);
+                    return;
 
-            throw new InvalidOperationException(
-                $"Unsupported Node3 topic \"{topicName}\".");
+                case "Area1":
+                case "Area2":
+                    this.OnArea(
+                        (ValueTuple<int, bool, string>)(object)payload!,
+                        TryParseAreaSide(topicName)!.Value,
+                        originatingTime);
+                    return;
+
+                case "Object Bound":
+                    this.OnObjectBound((ValueTuple<string, Vector3, Vector3>)(object)payload!);
+                    return;
+
+                case "1-LeftWrist":
+                case "1-RightWrist":
+                case "2-LeftWrist":
+                case "2-RightWrist":
+                    if (TryParseWristKey(topicName, out string wristKey))
+                    {
+                        this.OnWrist(payload!, wristKey);
+                    }
+
+                    return;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported GammaPath topic \"{topicName}\".");
+            }
         }
 
-        private void OnDoor(ValueTuple<bool, Vector3> door, int side)
+        private void OnModuleStatus(ValueTuple<int, string> moduleStatus, DateTime originatingTime)
         {
-            // Item1 true = open; closed = false (latest sampled at leave).
-            this.doorOpenBySide[side] = door.Item1;
+            int moduleId = moduleStatus.Item1;
+            int batteryId = this.ResolveBatteryId(originatingTime);
+            HashSet<int> seenInBattery = this.GetOrCreateSeenModules(batteryId);
+            if (!seenInBattery.Add(moduleId))
+            {
+                return;
+            }
+
+            // New module success starts (or restarts) a cycle: 2s node-2 window from create time.
+            // Keep any pending Select/Validation so same-OT flush after node-1 can still fire node 2.
+            this.phaseByBattery[batteryId] = CyclePhase.Node2Window;
+            this.node1CreateByBattery[batteryId] = originatingTime;
+
+            this.Node1FireCount++;
+            this.EmitNodeFire(
+                status: $"node-1: Module status id={moduleId} (new this Battery)",
+                evidenceId: $"node-1:Module status:id={moduleId}",
+                originatingTime: originatingTime);
+
+            this.TryFlushPendingNode2Trigger(batteryId);
+        }
+
+        private void OnDoor(ValueTuple<bool, Vector3> door, string topicName, DateTime originatingTime)
+        {
+            int? side = TryParseDoorSide(topicName);
+            if (!side.HasValue)
+            {
+                return;
+            }
+
+            this.doorOpenBySide[side.Value] = door.Item1;
+            this.AdvancePhaseIfNeeded(this.ResolveBatteryId(originatingTime), originatingTime);
+            // Door state is shared; flush every Battery that may be waiting on this side.
+            this.TryFlushAllPendingNode2Triggers();
+        }
+
+        private void OnSelectModule(string selection, string topicName, DateTime originatingTime)
+        {
+            if (string.IsNullOrWhiteSpace(selection))
+            {
+                return;
+            }
+
+            this.TryFireNode2(
+                topicName,
+                triggerDetail: $"SelectModule=\"{selection}\"",
+                originatingTime);
+        }
+
+        private void OnValidation(bool validationPressed, string topicName, DateTime originatingTime)
+        {
+            if (!validationPressed)
+            {
+                return;
+            }
+
+            this.TryFireNode2(
+                topicName,
+                triggerDetail: "Validation=true",
+                originatingTime);
         }
 
         private void OnObjectBound(ValueTuple<string, Vector3, Vector3> bound)
@@ -347,18 +468,18 @@ namespace SAAC.Logigram1.Logic
             bool entered = area.Item2;
             string info = area.Item3;
 
-            // Player leave of GeneratorArea only (id=-1, state=false, info=GeneratorArea).
-            if (id != PlayerAreaId)
+            if (id != PlayerAreaId || entered
+                || !string.Equals(info, GeneratorAreaInfo, StringComparison.Ordinal))
             {
                 return;
             }
 
-            if (entered)
-            {
-                return;
-            }
+            int batteryId = this.ResolveBatteryId(originatingTime);
+            this.AdvancePhaseIfNeeded(batteryId, originatingTime);
 
-            if (!string.Equals(info, GeneratorAreaInfo, StringComparison.Ordinal))
+            // Node 3 only after unused post–node-1 2s window (active cycle, not reset via node 2).
+            if (!this.phaseByBattery.TryGetValue(batteryId, out CyclePhase phase)
+                || phase != CyclePhase.Node3Eligible)
             {
                 return;
             }
@@ -382,7 +503,9 @@ namespace SAAC.Logigram1.Logic
                 evidenceId: $"node-3:Area{side}:{branch}",
                 originatingTime: originatingTime);
 
-            int batteryId = this.ResolveBatteryId(originatingTime);
+            // Cycle completes at C — reset so a later leave cannot re-fire without a new node 1.
+            this.ResetCycle(batteryId);
+
             DateTime regulationTime = EnsureStrictlyIncreasing(
                 originatingTime,
                 ref this.lastRegulationOriginatingTime);
@@ -392,9 +515,92 @@ namespace SAAC.Logigram1.Logic
             this.GammaDecisionEmitCount++;
         }
 
+        private void TryFireNode2(string topicName, string triggerDetail, DateTime originatingTime)
+        {
+            int batteryId = this.ResolveBatteryId(originatingTime);
+            this.AdvancePhaseIfNeeded(batteryId, originatingTime);
+
+            if (!this.phaseByBattery.TryGetValue(batteryId, out CyclePhase phase)
+                || phase != CyclePhase.Node2Window
+                || !this.node1CreateByBattery.TryGetValue(batteryId, out DateTime createTime))
+            {
+                this.StorePendingNode2TriggerIfEmpty(batteryId, topicName, triggerDetail, originatingTime);
+                return;
+            }
+
+            if (originatingTime < createTime)
+            {
+                return;
+            }
+
+            if (originatingTime - createTime > Node2Window)
+            {
+                // Late relative to create — phase advance should have moved to Node3Eligible.
+                this.AdvancePhaseIfNeeded(batteryId, originatingTime);
+                this.ClearPendingNode2Trigger(batteryId);
+                return;
+            }
+
+            int? side = TryParseSelectValidationSide(topicName);
+            if (!side.HasValue || !this.IsDoorClosed(side.Value))
+            {
+                // Select/Validation arrived but paired door not yet closed — hold for a later door sample.
+                this.StorePendingNode2TriggerIfEmpty(batteryId, topicName, triggerDetail, originatingTime);
+                return;
+            }
+
+            // Door closed + Select/Validation together in the create window → reset, no Gamma.
+            this.ClearPendingNode2Trigger(batteryId);
+            this.ResetCycle(batteryId);
+            this.Node2FireCount++;
+
+            this.EmitNodeFire(
+                status: $"node-2: door-closed + {triggerDetail} (within 2s of module create; source {topicName})",
+                evidenceId: $"node-2:{topicName}:{triggerDetail}",
+                originatingTime: originatingTime);
+        }
+
+        private void AdvancePhaseIfNeeded(int batteryId, DateTime originatingTime)
+        {
+            if (!this.phaseByBattery.TryGetValue(batteryId, out CyclePhase phase)
+                || phase != CyclePhase.Node2Window
+                || !this.node1CreateByBattery.TryGetValue(batteryId, out DateTime createTime))
+            {
+                return;
+            }
+
+            if (originatingTime - createTime > Node2Window)
+            {
+                this.phaseByBattery[batteryId] = CyclePhase.Node3Eligible;
+            }
+        }
+
+        private void ResetCycle(int batteryId)
+        {
+            this.phaseByBattery[batteryId] = CyclePhase.Idle;
+            this.node1CreateByBattery.Remove(batteryId);
+            this.ClearPendingNode2Trigger(batteryId);
+        }
+
+        private static int? TryParseSelectValidationSide(string topicName)
+        {
+            if (string.Equals(topicName, "M1-SelectModule", StringComparison.Ordinal)
+                || string.Equals(topicName, "M1-Validation", StringComparison.Ordinal))
+            {
+                return 1;
+            }
+
+            if (string.Equals(topicName, "M2-SelectModule", StringComparison.Ordinal)
+                || string.Equals(topicName, "M2-Validation", StringComparison.Ordinal))
+            {
+                return 2;
+            }
+
+            return null;
+        }
+
         private bool IsDoorClosed(int side)
         {
-            // Absent door sample → not closed (do not invent closed).
             return this.doorOpenBySide.TryGetValue(side, out bool open) && !open;
         }
 
@@ -422,7 +628,62 @@ namespace SAAC.Logigram1.Logic
             return best <= HandNearDistanceMeters;
         }
 
-        private void EmitNodeFire(string status, string evidenceId, DateTime originatingTime)
+        private HashSet<int> GetOrCreateSeenModules(int batteryId)
+        {
+            if (!this.seenModuleIdsByBattery.TryGetValue(batteryId, out HashSet<int>? seen))
+            {
+                seen = new HashSet<int>();
+                this.seenModuleIdsByBattery[batteryId] = seen;
+            }
+
+            return seen;
+        }
+
+        private void TryFlushAllPendingNode2Triggers()
+        {
+            if (this.pendingNode2ByBattery.Count == 0)
+            {
+                return;
+            }
+
+            var batteryIds = new List<int>(this.pendingNode2ByBattery.Keys);
+            foreach (int batteryId in batteryIds)
+            {
+                this.TryFlushPendingNode2Trigger(batteryId);
+            }
+        }
+
+        private void TryFlushPendingNode2Trigger(int batteryId)
+        {
+            if (!this.pendingNode2ByBattery.TryGetValue(batteryId, out (string Topic, string Detail, DateTime Time) pending))
+            {
+                return;
+            }
+
+            this.ClearPendingNode2Trigger(batteryId);
+            this.TryFireNode2(pending.Topic, pending.Detail, pending.Time);
+        }
+
+        private void StorePendingNode2TriggerIfEmpty(
+            int batteryId,
+            string topicName,
+            string triggerDetail,
+            DateTime originatingTime)
+        {
+            if (this.pendingNode2ByBattery.ContainsKey(batteryId))
+            {
+                return;
+            }
+
+            this.pendingNode2ByBattery[batteryId] = (topicName, triggerDetail, originatingTime);
+        }
+
+        private void ClearPendingNode2Trigger(int batteryId)
+        {
+            this.pendingNode2ByBattery.Remove(batteryId);
+        }
+
+        private int EmitNodeFire(string status, string evidenceId, DateTime originatingTime)
         {
             int batteryId = this.ResolveBatteryId(originatingTime);
 
@@ -446,6 +707,8 @@ namespace SAAC.Logigram1.Logic
                 },
                 evidenceTime);
             this.EvidenceEmitCount++;
+
+            return batteryId;
         }
     }
 }

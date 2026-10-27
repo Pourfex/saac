@@ -18,9 +18,9 @@ namespace Logigram1Analysis
     using SAAC.Logigram1.Logic;
 
     /// <summary>
-    /// FullSpeed importer pipeline: enabled Logic units (FirstUnit and/or Node3) + designated Outcome
+    /// FullSpeed importer pipeline: <c>Logigram1.GammaPath</c> cycle FSM + designated Outcome
     /// writer → one analysis PsiStore partition + Dataset <c>.pds</c> (PERSIST / REPLAY locked decisions).
-    /// Multi-unit: shared State/Outcome store; topic union; clear-before-write; SESSION_ATTR.
+    /// Clear-before-write; SESSION_ATTR. Runner name kept for call-site stability.
     /// </summary>
     public static class FirstUnitPipelineRunner
     {
@@ -28,7 +28,7 @@ namespace Logigram1Analysis
         public const string AnalysisStoreName = "Logigram1Analysis";
 
         /// <summary>
-        /// Runs enabled Logic units over their AD-7 topics, pipes evidence and Gamma decisions to the writer,
+        /// Runs the Gamma-path unit over its AD-7 topic union, pipes evidence and Gamma decisions to the writer,
         /// persists <see cref="LogigramState.StreamName"/> and <see cref="LogigramOutcome.StreamName"/>,
         /// and saves the analysis Dataset at <paramref name="resolvedOutputPds"/>.
         /// </summary>
@@ -36,7 +36,7 @@ namespace Logigram1Analysis
         /// <param name="batterySegments">Discovered Spawn→Finish segments for BatteryId stamping.</param>
         /// <param name="resolvedOutputPds">Validated absolute output <c>.pds</c> path.</param>
         /// <param name="inputStorePath">Absolute input Casper <c>.pds</c> (SESSION_ATTR session name).</param>
-        /// <param name="enabledUnits">Enabled unit ids (FirstUnit and/or Node3); at least one required.</param>
+        /// <param name="enabledUnits">Enabled unit ids; must include <c>Logigram1.GammaPath</c> (legacy ids ignored upstream).</param>
         /// <param name="findStreamByExactName">Stream lookup (defaults to console helper).</param>
         /// <exception cref="InvalidOperationException">Missing topic stream or persist failure.</exception>
         public static void RunAndPersist(
@@ -57,12 +57,10 @@ namespace Logigram1Analysis
                 throw new ArgumentException("Resolved output Dataset path is required.", nameof(resolvedOutputPds));
             }
 
-            bool firstUnitEnabled = IsUnitEnabled(enabledUnits, Logigram1UnitTopicRegistry.FirstUnitId);
-            bool node3Enabled = IsUnitEnabled(enabledUnits, Logigram1UnitTopicRegistry.Node3UnitId);
-            if (!firstUnitEnabled && !node3Enabled)
+            if (!IsUnitEnabled(enabledUnits, Logigram1UnitTopicRegistry.GammaPathUnitId))
             {
                 throw new InvalidOperationException(
-                    "RunAndPersist requires at least one of Logigram1.FirstUnit or Logigram1.Node3 enabled.");
+                    "RunAndPersist requires Logigram1.GammaPath enabled.");
             }
 
             Func<Dataset, string, IStreamMetadata> lookup = findStreamByExactName
@@ -95,39 +93,9 @@ namespace Logigram1Analysis
             using (Pipeline pipeline = Pipeline.Create(nameof(FirstUnitPipelineRunner)))
             {
                 var writer = new LogigramOutcomeWriter(pipeline);
-                Logigram1FirstUnit firstUnit = null;
-                Logigram1Node3Unit node3Unit = null;
-                var stateProducers = new List<IProducer<LogigramState>>();
-                var regulationProducers = new List<IProducer<(LogigramRegulation Regulation, int BatteryId)>>();
-                bool evidenceWired = false;
-
-                if (firstUnitEnabled)
-                {
-                    firstUnit = new Logigram1FirstUnit(pipeline, scopes);
-                    firstUnit.EvidenceOut.PipeTo(writer.EvidenceIn);
-                    evidenceWired = true;
-                    stateProducers.Add(firstUnit.StateOut);
-                    regulationProducers.Add(firstUnit.RegulationDecisionWithBatteryOut);
-                }
-
-                if (node3Enabled)
-                {
-                    node3Unit = new Logigram1Node3Unit(pipeline, scopes);
-                    if (evidenceWired)
-                    {
-                        node3Unit.EvidenceOut.PipeTo(writer.AddEvidenceInput());
-                    }
-                    else
-                    {
-                        node3Unit.EvidenceOut.PipeTo(writer.EvidenceIn);
-                    }
-
-                    stateProducers.Add(node3Unit.StateOut);
-                    regulationProducers.Add(node3Unit.RegulationDecisionWithBatteryOut);
-                }
-
-                WireMergedRegulation(regulationProducers, writer);
-                IProducer<LogigramState> mergedState = WireMergedState(stateProducers);
+                var gammaPath = new Logigram1GammaPathUnit(pipeline, scopes);
+                gammaPath.EvidenceOut.PipeTo(writer.EvidenceIn);
+                gammaPath.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
 
                 var importers = new Dictionary<string, PsiImporter>(StringComparer.Ordinal);
                 var attachedTopics = new HashSet<string>(StringComparer.Ordinal);
@@ -147,12 +115,12 @@ namespace Logigram1Analysis
                     }
 
                     PsiImporter importer = GetOrOpenImporter(pipeline, importers, metadata);
-                    AttachTopic(importer, firstUnit, node3Unit, topic, metadata.Name);
+                    AttachTopic(importer, gammaPath, topic, metadata.Name);
                 }
 
                 PsiExporter exporter = PsiStore.Create(pipeline, AnalysisStoreName, storeRoot);
                 DateTime lastStateWrite = DateTime.MinValue;
-                mergedState
+                gammaPath.StateOut
                     .Process<LogigramState, LogigramState>(
                         (state, envelope, emitter) =>
                         {
@@ -169,7 +137,7 @@ namespace Logigram1Analysis
                     .Write(LogigramState.StreamName, exporter);
                 writer.Out.Write(LogigramOutcome.StreamName, exporter);
 
-                // REPLAY = FullSpeed over enabled units + Battery-scoped derivation (importer-driven).
+                // REPLAY = FullSpeed over GammaPath + Battery-scoped derivation (importer-driven).
                 Exception pipelineError = null;
                 pipeline.PipelineExceptionNotHandled += (_, args) =>
                 {
@@ -258,59 +226,6 @@ namespace Logigram1Analysis
                 string.Equals(raw?.Trim(), unitId, StringComparison.Ordinal));
         }
 
-        private static void WireMergedRegulation(
-            List<IProducer<(LogigramRegulation Regulation, int BatteryId)>> producers,
-            LogigramOutcomeWriter writer)
-        {
-            if (producers == null || producers.Count == 0)
-            {
-                throw new InvalidOperationException("At least one regulation producer is required.");
-            }
-
-            if (producers.Count == 1)
-            {
-                producers[0].PipeTo(writer.RegulationDecisionWithBatteryIn);
-                return;
-            }
-
-            // Same OT bump as merged State: equal FirstUnit+Node3 times must not break writer.Post.
-            DateTime lastRegulationWrite = DateTime.MinValue;
-            producers[0]
-                .Merge(producers[1], DeliveryPolicy.Unlimited)
-                .Select(message => message.Data, DeliveryPolicy.Unlimited)
-                .Process<(LogigramRegulation Regulation, int BatteryId), (LogigramRegulation Regulation, int BatteryId)>(
-                    (decision, envelope, emitter) =>
-                    {
-                        DateTime time = envelope.OriginatingTime;
-                        if (time <= lastRegulationWrite)
-                        {
-                            time = lastRegulationWrite.AddTicks(1);
-                        }
-
-                        lastRegulationWrite = time;
-                        emitter.Post(decision, time);
-                    },
-                    DeliveryPolicy.Unlimited)
-                .PipeTo(writer.RegulationDecisionWithBatteryIn);
-        }
-
-        private static IProducer<LogigramState> WireMergedState(List<IProducer<LogigramState>> producers)
-        {
-            if (producers == null || producers.Count == 0)
-            {
-                throw new InvalidOperationException("At least one State producer is required.");
-            }
-
-            if (producers.Count == 1)
-            {
-                return producers[0];
-            }
-
-            return producers[0]
-                .Merge(producers[1], DeliveryPolicy.Unlimited)
-                .Select(message => message.Data, DeliveryPolicy.Unlimited);
-        }
-
         private static PsiImporter GetOrOpenImporter(
             Pipeline pipeline,
             Dictionary<string, PsiImporter> importers,
@@ -328,73 +243,44 @@ namespace Logigram1Analysis
 
         private static void AttachTopic(
             PsiImporter importer,
-            Logigram1FirstUnit firstUnit,
-            Logigram1Node3Unit node3Unit,
+            Logigram1GammaPathUnit gammaPath,
             string topicName,
             string streamName)
         {
-            // Shared topics (Porte) may feed both units; others are unit-specific.
-            bool isFirstUnitTopic = firstUnit != null
-                && Logigram1UnitTopicRegistry.FirstUnitTopics.Contains(topicName);
-            bool isNode3Topic = node3Unit != null
-                && Logigram1UnitTopicRegistry.Node3Topics.Contains(topicName);
-
-            if (!isFirstUnitTopic && !isNode3Topic)
-            {
-                throw new InvalidOperationException(
-                    $"No catalogue type mapping for Logic topic \"{topicName}\".");
-            }
-
             switch (topicName)
             {
                 case "Module status":
                     importer.OpenStream<ValueTuple<int, string>>(streamName)
-                        .PipeTo(firstUnit.AddTopicInput<ValueTuple<int, string>>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<int, string>>(topicName));
                     break;
 
                 case "Porte1 ouverture":
                 case "Porte2 ouverture":
-                    {
-                        // Tee via Select so FirstUnit + Node3 each get a dedicated branch (shared Porte).
-                        var doorStream = importer.OpenStream<ValueTuple<bool, Vector3>>(streamName);
-                        if (isFirstUnitTopic)
-                        {
-                            doorStream
-                                .Select(payload => payload, DeliveryPolicy.Unlimited)
-                                .PipeTo(firstUnit.AddTopicInput<ValueTuple<bool, Vector3>>(topicName));
-                        }
-
-                        if (isNode3Topic)
-                        {
-                            doorStream
-                                .Select(payload => payload, DeliveryPolicy.Unlimited)
-                                .PipeTo(node3Unit.AddTopicInput<ValueTuple<bool, Vector3>>(topicName));
-                        }
-
-                        break;
-                    }
+                    importer.OpenStream<ValueTuple<bool, Vector3>>(streamName)
+                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<bool, Vector3>>(topicName));
+                    break;
 
                 case "M1-SelectModule":
                 case "M2-SelectModule":
                     importer.OpenStream<string>(streamName)
-                        .PipeTo(firstUnit.AddTopicInput<string>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<string>(topicName));
                     break;
 
                 case "M1-Validation":
                 case "M2-Validation":
                     importer.OpenStream<bool>(streamName)
-                        .PipeTo(firstUnit.AddTopicInput<bool>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<bool>(topicName));
                     break;
 
                 case "Area1":
                 case "Area2":
                     importer.OpenStream<ValueTuple<int, bool, string>>(streamName)
-                        .PipeTo(node3Unit.AddTopicInput<ValueTuple<int, bool, string>>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<int, bool, string>>(topicName));
                     break;
 
                 case "Object Bound":
                     importer.OpenStream<ValueTuple<string, Vector3, Vector3>>(streamName)
-                        .PipeTo(node3Unit.AddTopicInput<ValueTuple<string, Vector3, Vector3>>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<string, Vector3, Vector3>>(topicName));
                     break;
 
                 case "1-LeftWrist":
@@ -402,7 +288,7 @@ namespace Logigram1Analysis
                 case "2-LeftWrist":
                 case "2-RightWrist":
                     importer.OpenStream<Tuple<Vector3, Vector3>>(streamName)
-                        .PipeTo(node3Unit.AddTopicInput<Tuple<Vector3, Vector3>>(topicName));
+                        .PipeTo(gammaPath.AddTopicInput<Tuple<Vector3, Vector3>>(topicName));
                     break;
 
                 default:
