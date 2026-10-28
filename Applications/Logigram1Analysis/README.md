@@ -6,7 +6,7 @@ Offline Casper Dataset console for Logigram 1 Logic. Enables the **`Logigram1.Ga
 
 | Id | Role |
 |----|------|
-| `Logigram1.GammaPath` | Sole enableable unit. Topic bag = former FirstUnit ∪ Node3 topics. |
+| `Logigram1.GammaPath` | Sole enableable unit. Required topics include `ObjectBound` + LeftWrist; RightWrist is optional. |
 
 Legacy `Logigram1.FirstUnit` and `Logigram1.Node3` in `EnabledUnits` are **warned and ignored** (stderr). They do not run and do not contribute topics.
 

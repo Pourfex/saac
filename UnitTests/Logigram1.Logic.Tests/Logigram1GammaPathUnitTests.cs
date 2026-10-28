@@ -46,7 +46,7 @@ namespace Logigram1.Logic.Tests
             Assert.AreEqual("2", Logigram1GammaPathUnit.NodeLabelForTopic("Porte1 ouverture"));
             Assert.AreEqual("2", Logigram1GammaPathUnit.NodeLabelForTopic("M1-SelectModule"));
             Assert.AreEqual("3", Logigram1GammaPathUnit.NodeLabelForTopic("Area1"));
-            Assert.AreEqual("3", Logigram1GammaPathUnit.NodeLabelForTopic("Object Bound"));
+            Assert.AreEqual("3", Logigram1GammaPathUnit.NodeLabelForTopic("ObjectBound"));
             Assert.AreEqual("3", Logigram1GammaPathUnit.NodeLabelForTopic("1-LeftWrist"));
         }
 
@@ -290,7 +290,7 @@ namespace Logigram1.Logic.Tests
                 var area = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "hand-area");
                 module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
                 door.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
-                bound.PipeTo(unit.AddTopicInput<ValueTuple<string, Vector3, Vector3>>("Object Bound"));
+                bound.PipeTo(unit.AddTopicInput<ValueTuple<string, Vector3, Vector3>>("ObjectBound"));
                 wrist.PipeTo(unit.AddTopicInput<Tuple<Vector3, Vector3>>("1-LeftWrist"));
                 area.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
 

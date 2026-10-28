@@ -204,6 +204,20 @@ namespace Logigram1Analysis
                     }
                 }
 
+                IReadOnlyList<string> optionalTopics = Logigram1UnitTopicRegistry.ResolveOptionalTopics(runnableUnits);
+                if (optionalTopics.Count > 0)
+                {
+                    stdout.WriteLine("Optional Logic topics (RightWrist; absent is OK):");
+                    foreach (string topic in optionalTopics)
+                    {
+                        IStreamMetadata optionalMeta = FindStreamByExactName(pipeline.Dataset, topic);
+                        stdout.WriteLine(
+                            optionalMeta != null
+                                ? $"  {topic}: present"
+                                : $"  {topic}: absent");
+                    }
+                }
+
                 // AD-6: after substrate + Logic-topic checks, discover Battery scopes or fail explicitly.
                 if (!BatteryBoundaryDiscovery.TryDiscoverFromDataset(
                         pipeline.Dataset,

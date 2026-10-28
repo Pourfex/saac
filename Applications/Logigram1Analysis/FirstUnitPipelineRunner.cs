@@ -81,14 +81,16 @@ namespace Logigram1Analysis
 
             Directory.CreateDirectory(storeRoot);
 
-            IReadOnlyList<string> topicsToAttach = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+            IReadOnlyList<string> requiredTopics = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
                 enabledUnits,
                 out string unknownUnitId);
-            if (unknownUnitId != null || topicsToAttach == null)
+            if (unknownUnitId != null || requiredTopics == null)
             {
                 throw new InvalidOperationException(
                     $"Unknown enabled Logic unit id \"{unknownUnitId ?? "(null)"}\": no topic registry entry.");
             }
+
+            IReadOnlyList<string> optionalTopics = Logigram1UnitTopicRegistry.ResolveOptionalTopics(enabledUnits);
 
             using (Pipeline pipeline = Pipeline.Create(nameof(FirstUnitPipelineRunner)))
             {
@@ -100,7 +102,7 @@ namespace Logigram1Analysis
                 var importers = new Dictionary<string, PsiImporter>(StringComparer.Ordinal);
                 var attachedTopics = new HashSet<string>(StringComparer.Ordinal);
 
-                foreach (string topic in topicsToAttach)
+                foreach (string topic in requiredTopics)
                 {
                     if (!attachedTopics.Add(topic))
                     {
@@ -112,6 +114,23 @@ namespace Logigram1Analysis
                     {
                         throw new InvalidOperationException(
                             $"Required Logic topic stream missing at run time: {topic}.");
+                    }
+
+                    PsiImporter importer = GetOrOpenImporter(pipeline, importers, metadata);
+                    AttachTopic(importer, gammaPath, topic, metadata.Name);
+                }
+
+                foreach (string topic in optionalTopics)
+                {
+                    if (!attachedTopics.Add(topic))
+                    {
+                        continue;
+                    }
+
+                    IStreamMetadata metadata = lookup(dataset, topic);
+                    if (metadata == null)
+                    {
+                        continue;
                     }
 
                     PsiImporter importer = GetOrOpenImporter(pipeline, importers, metadata);
@@ -278,7 +297,7 @@ namespace Logigram1Analysis
                         .PipeTo(gammaPath.AddTopicInput<ValueTuple<int, bool, string>>(topicName));
                     break;
 
-                case "Object Bound":
+                case "ObjectBound":
                     importer.OpenStream<ValueTuple<string, Vector3, Vector3>>(streamName)
                         .PipeTo(gammaPath.AddTopicInput<ValueTuple<string, Vector3, Vector3>>(topicName));
                     break;

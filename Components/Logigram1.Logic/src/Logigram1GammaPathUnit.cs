@@ -148,7 +148,7 @@ namespace SAAC.Logigram1.Logic
 
             if (string.Equals(topicName, "Area1", StringComparison.Ordinal)
                 || string.Equals(topicName, "Area2", StringComparison.Ordinal)
-                || string.Equals(topicName, "Object Bound", StringComparison.Ordinal)
+                || string.Equals(topicName, "ObjectBound", StringComparison.Ordinal)
                 || topicName.EndsWith("Wrist", StringComparison.Ordinal))
             {
                 return "3";
@@ -346,7 +346,7 @@ namespace SAAC.Logigram1.Logic
                         originatingTime);
                     return;
 
-                case "Object Bound":
+                case "ObjectBound":
                     this.OnObjectBound((ValueTuple<string, Vector3, Vector3>)(object)payload!);
                     return;
 
@@ -520,11 +520,28 @@ namespace SAAC.Logigram1.Logic
             int batteryId = this.ResolveBatteryId(originatingTime);
             this.AdvancePhaseIfNeeded(batteryId, originatingTime);
 
-            if (!this.phaseByBattery.TryGetValue(batteryId, out CyclePhase phase)
-                || phase != CyclePhase.Node2Window
+            if (!this.phaseByBattery.TryGetValue(batteryId, out CyclePhase phase))
+            {
+                // No cycle yet — hold Select until a later node-1 (same-OT flush).
+                this.StorePendingNode2TriggerIfEmpty(batteryId, topicName, triggerDetail, originatingTime);
+                return;
+            }
+
+            if (phase == CyclePhase.Node3Eligible)
+            {
+                // Past the create window — never arm node-2 from a late Select/Validation.
+                this.ClearPendingNode2Trigger(batteryId);
+                return;
+            }
+
+            if (phase != CyclePhase.Node2Window
                 || !this.node1CreateByBattery.TryGetValue(batteryId, out DateTime createTime))
             {
-                this.StorePendingNode2TriggerIfEmpty(batteryId, topicName, triggerDetail, originatingTime);
+                if (phase == CyclePhase.Idle)
+                {
+                    this.StorePendingNode2TriggerIfEmpty(batteryId, topicName, triggerDetail, originatingTime);
+                }
+
                 return;
             }
 
@@ -535,8 +552,7 @@ namespace SAAC.Logigram1.Logic
 
             if (originatingTime - createTime > Node2Window)
             {
-                // Late relative to create — phase advance should have moved to Node3Eligible.
-                this.AdvancePhaseIfNeeded(batteryId, originatingTime);
+                this.phaseByBattery[batteryId] = CyclePhase.Node3Eligible;
                 this.ClearPendingNode2Trigger(batteryId);
                 return;
             }

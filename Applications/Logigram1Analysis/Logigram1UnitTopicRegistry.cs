@@ -8,6 +8,7 @@ namespace Logigram1Analysis
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
 
     /// <summary>
     /// Maps enabled Logigram 1 Logic unit ids to AD-7 PSI topic names required as Unity→Psi inputs.
@@ -26,9 +27,10 @@ namespace Logigram1Analysis
         public const string LegacyNode3UnitId = "Logigram1.Node3";
 
         /// <summary>
-        /// AD-7 source topics for <see cref="GammaPathUnitId"/> (FirstUnit bag ∪ Node3 bag).
+        /// Required AD-7 source topics for <see cref="GammaPathUnitId"/> (fail loud if absent).
+        /// Casper stream spelling is <c>ObjectBound</c> (no space). RightWrist streams are optional.
         /// </summary>
-        public static readonly IReadOnlyList<string> GammaPathTopics = Array.AsReadOnly(new[]
+        public static readonly IReadOnlyList<string> GammaPathRequiredTopics = Array.AsReadOnly(new[]
         {
             "Module status",
             "Porte1 ouverture",
@@ -39,12 +41,25 @@ namespace Logigram1Analysis
             "M2-Validation",
             "Area1",
             "Area2",
-            "Object Bound",
+            "ObjectBound",
             "1-LeftWrist",
-            "1-RightWrist",
             "2-LeftWrist",
+        });
+
+        /// <summary>
+        /// Optional wrist topics - attach when present; Casper stores often omit RightWrist.
+        /// </summary>
+        public static readonly IReadOnlyList<string> GammaPathOptionalTopics = Array.AsReadOnly(new[]
+        {
+            "1-RightWrist",
             "2-RightWrist",
         });
+
+        /// <summary>
+        /// Full Gamma-path catalogue (required union optional) for fixtures and docs.
+        /// </summary>
+        public static readonly IReadOnlyList<string> GammaPathTopics = Array.AsReadOnly(
+            GammaPathRequiredTopics.Concat(GammaPathOptionalTopics).ToArray());
 
         /// <summary>
         /// Whether <paramref name="unitId"/> is a deprecated EnabledUnits entry (warn+ignore).
@@ -73,12 +88,58 @@ namespace Logigram1Analysis
         {
             if (string.Equals(unitId, GammaPathUnitId, StringComparison.Ordinal))
             {
-                topics = GammaPathTopics;
+                topics = GammaPathRequiredTopics;
                 return true;
             }
 
             topics = null;
             return false;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="topicName"/> is an optional Gamma-path topic (RightWrist).
+        /// </summary>
+        /// <param name="topicName">AD-7 topic string.</param>
+        /// <returns>True when the topic may be absent without failing the run.</returns>
+        public static bool IsOptionalTopic(string topicName)
+        {
+            if (string.IsNullOrEmpty(topicName))
+            {
+                return false;
+            }
+
+            foreach (string optional in GammaPathOptionalTopics)
+            {
+                if (string.Equals(optional, topicName, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Optional topics to attach when GammaPath is among <paramref name="enabledUnits"/>.
+        /// </summary>
+        /// <param name="enabledUnits">Runnable unit ids (legacy already filtered).</param>
+        /// <returns>Optional topic names, or empty when GammaPath is not enabled.</returns>
+        public static IReadOnlyList<string> ResolveOptionalTopics(IEnumerable<string> enabledUnits)
+        {
+            if (enabledUnits == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            foreach (string rawId in enabledUnits)
+            {
+                if (string.Equals(rawId?.Trim(), GammaPathUnitId, StringComparison.Ordinal))
+                {
+                    return GammaPathOptionalTopics;
+                }
+            }
+
+            return Array.Empty<string>();
         }
 
         /// <summary>

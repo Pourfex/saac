@@ -25,7 +25,7 @@ Depends on contracts `Logigram1` upward.
 |------|---------|-------------------|------------|
 | **1** | Génération de module réussie | `Module status` | `(int id, string)` — fire when `id` was **not yet seen on that Battery**. Starts a cycle and a **2s node-2 window from that create time**. |
 | **2** | Door closed + Select/Validation **together** within 2s of create | `Porte1/2 ouverture`, `M?-SelectModule`, `M?-Validation` | Within the create window: latest door sample closed **and** non-empty Select **or** Validation `true` → State/Evidence, **cycle reset, no Gamma**. |
-| **3** | Porte fermée + leave GeneratorArea **OU** hand near + leave | `Porte1/2`, `Area1/2`, `Object Bound`, wrists | Eligible only **after** the unused 2s window (not during it; not without a prior node-1 cycle; not after node-2 reset). On player (`id=-1`) exit of `GeneratorArea` on AreaN: fire if PorteN closed **or** player-N wrist ≤1 m of `GenerateurN` AABB. On fire → State/Evidence + `(Gamma, BatteryId)` for the writer. |
+| **3** | Porte fermée + leave GeneratorArea **OU** hand near + leave | `Porte1/2`, `Area1/2`, `ObjectBound`, wrists | Eligible only **after** the unused 2s window (not during it; not without a prior node-1 cycle; not after node-2 reset). On player (`id=-1`) exit of `GeneratorArea` on AreaN: fire if PorteN closed **or** player-N wrist ≤1 m of `GenerateurN` AABB. On fire → State/Evidence + `(Gamma, BatteryId)` for the writer. |
 
 Catalogue payload types (Analysis importer map):
 
@@ -36,9 +36,10 @@ Catalogue payload types (Analysis importer map):
 | `M1-SelectModule`, `M2-SelectModule` | `string` |
 | `M1-Validation`, `M2-Validation` | `bool` |
 | `Area1`, `Area2` | `(int id, bool state, string info)` |
-| `Object Bound` | `(string name, Vector3, Vector3)` — use `Generateur1` / `Generateur2` |
-| `1-LeftWrist`, `1-RightWrist`, `2-LeftWrist`, `2-RightWrist` | `Tuple<Vector3, Vector3>` (position, orientation) — position = Item1 |
+| `ObjectBound` | `(string name, Vector3, Vector3)` — use `Generateur1` / `Generateur2` |
+| `1-LeftWrist`, `2-LeftWrist` | `Tuple<Vector3, Vector3>` (position, orientation) — position = Item1 (**required**) |
+| `1-RightWrist`, `2-RightWrist` | Same payload — **optional** (Casper often omits; hand-near uses whichever wrists are present) |
 
 ## Analysis console
 
-Wire order: substrate → Logic topics (GammaPath bag) → Battery discovery → (if `Logigram1.GammaPath` enabled) resolve output → importers → unit → Evidence → writer; RegulationDecisionWithBattery → writer → persist `Logigram1.State` / `Logigram1.Outcome` → print path. Empty `EnabledUnits` or legacy-only ids → substrate only (no analysis Dataset). Missing required topics → fail loud (non-zero exit).
+Wire order: substrate → required Logic topics (`ObjectBound`, LeftWrist, …) → optional RightWrist when present → Battery discovery → (if `Logigram1.GammaPath` enabled) resolve output → importers → unit → Evidence → writer; RegulationDecisionWithBattery → writer → persist `Logigram1.State` / `Logigram1.Outcome` → print path. Empty `EnabledUnits` or legacy-only ids → substrate only (no analysis Dataset). Missing required topics → fail loud (non-zero exit).

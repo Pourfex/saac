@@ -202,7 +202,7 @@ namespace Logigram1Analysis.Tests
                 Assert.AreNotEqual(0, exit, stdout.ToString());
                 string err = stderr.ToString();
                 // Area1/Area2 exist as substrate streams on PreTest stores — not reported as Logic gaps.
-                foreach (string topic in Logigram1UnitTopicRegistry.GammaPathTopics)
+                foreach (string topic in Logigram1UnitTopicRegistry.GammaPathRequiredTopics)
                 {
                     if (string.Equals(topic, "Area1", StringComparison.Ordinal)
                         || string.Equals(topic, "Area2", StringComparison.Ordinal))
@@ -818,7 +818,7 @@ namespace Logigram1Analysis.Tests
                     logicTopics: Logigram1UnitTopicRegistry.GammaPathTopics,
                     batterySegments: new List<(int, DateTime, DateTime)>
                     {
-                        (42, start, start.AddSeconds(5)),
+                        (42, start, start.AddSeconds(10)),
                     });
 
                 File.WriteAllText(
@@ -1185,7 +1185,7 @@ namespace Logigram1Analysis.Tests
                 Assert.AreNotEqual(0, exit, stdout.ToString());
                 string err = stderr.ToString();
                 // Area1/Area2 exist as substrate streams on PreTest stores — not reported as Logic gaps.
-                foreach (string topic in Logigram1UnitTopicRegistry.GammaPathTopics)
+                foreach (string topic in Logigram1UnitTopicRegistry.GammaPathRequiredTopics)
                 {
                     if (string.Equals(topic, "Area1", StringComparison.Ordinal)
                         || string.Equals(topic, "Area2", StringComparison.Ordinal))
@@ -1364,7 +1364,7 @@ namespace Logigram1Analysis.Tests
             }
         }
 
-        /// <summary>Registry exposes the GammaPath topic union (module/door/select + leave/AABB/wrists).</summary>
+        /// <summary>Registry exposes required GammaPath topics; RightWrist is optional only.</summary>
         [TestMethod]
         public void UnitTopicRegistry_GammaPath_HasTopicUnion()
         {
@@ -1372,14 +1372,18 @@ namespace Logigram1Analysis.Tests
                 Logigram1UnitTopicRegistry.TryGetRequiredTopics(
                     Logigram1UnitTopicRegistry.GammaPathUnitId,
                     out IReadOnlyList<string> topics));
-            Assert.AreEqual(14, topics.Count);
+            Assert.AreEqual(12, topics.Count);
             CollectionAssert.Contains(topics.ToList(), "Module status");
             CollectionAssert.Contains(topics.ToList(), "Porte1 ouverture");
             CollectionAssert.Contains(topics.ToList(), "M1-SelectModule");
             CollectionAssert.Contains(topics.ToList(), "Area1");
-            CollectionAssert.Contains(topics.ToList(), "Object Bound");
+            CollectionAssert.Contains(topics.ToList(), "ObjectBound");
             CollectionAssert.Contains(topics.ToList(), "1-LeftWrist");
-            CollectionAssert.Contains(topics.ToList(), "2-RightWrist");
+            CollectionAssert.Contains(topics.ToList(), "2-LeftWrist");
+            CollectionAssert.DoesNotContain(topics.ToList(), "1-RightWrist");
+            CollectionAssert.DoesNotContain(topics.ToList(), "2-RightWrist");
+            Assert.IsTrue(Logigram1UnitTopicRegistry.IsOptionalTopic("2-RightWrist"));
+            CollectionAssert.Contains(Logigram1UnitTopicRegistry.GammaPathOptionalTopics.ToList(), "1-RightWrist");
         }
 
         /// <summary>Legacy FirstUnit/Node3 ids are not independently enableable in the registry.</summary>
@@ -1408,7 +1412,7 @@ namespace Logigram1Analysis.Tests
             Assert.IsNull(unknown);
             Assert.IsNotNull(union);
             CollectionAssert.Contains(union.ToList(), "Module status");
-            CollectionAssert.Contains(union.ToList(), "Object Bound");
+            CollectionAssert.Contains(union.ToList(), "ObjectBound");
             Assert.AreEqual(
                 union.Count,
                 new HashSet<string>(union, StringComparer.Ordinal).Count,
@@ -1503,8 +1507,46 @@ namespace Logigram1Analysis.Tests
                 int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
 
                 Assert.AreNotEqual(0, exit, stdout.ToString());
-                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing: Object Bound");
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing: ObjectBound");
                 Assert.IsFalse(File.Exists(Path.Combine(folder, "GammaGap.Logigram1Analysis.pds")));
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>Missing RightWrist is optional: run succeeds and reports absent.</summary>
+        [TestMethod]
+        public void Run_WithGammaPath_MissingRightWrist_SucceedsAndReportsOptionalAbsent()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-no-rwrist-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "NoRightWrist.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.GammaPathRequiredTopics,
+                    includeBatteryBoundaries: true);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.GammaPath\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString() + stdout.ToString());
+                StringAssert.Contains(stdout.ToString(), "1-RightWrist: absent");
+                StringAssert.Contains(stdout.ToString(), "2-RightWrist: absent");
+                Assert.IsTrue(File.Exists(Path.Combine(folder, "NoRightWrist.Logigram1Analysis.pds")));
             }
             finally
             {
@@ -1585,7 +1627,7 @@ namespace Logigram1Analysis.Tests
                 Assert.AreEqual(0, exit, stderr.ToString());
                 StringAssert.Contains(stderr.ToString(), "Warning: ignoring deprecated EnabledUnits id \"Logigram1.FirstUnit\"");
                 StringAssert.Contains(stdout.ToString(), "Required Logic topics OK:");
-                StringAssert.Contains(stdout.ToString(), "Object Bound: present");
+                StringAssert.Contains(stdout.ToString(), "ObjectBound: present");
                 StringAssert.Contains(stdout.ToString(), "Module status: present");
 
                 string outputPds = Path.Combine(folder, "GammaLegacy.Logigram1Analysis.pds");
@@ -1728,7 +1770,7 @@ namespace Logigram1Analysis.Tests
                 "Porte2 ouverture",
                 "Area1",
                 "Area2",
-                "Object Bound",
+                "ObjectBound",
                 "1-LeftWrist",
                 "1-RightWrist",
                 "2-LeftWrist",
@@ -2005,17 +2047,17 @@ namespace Logigram1Analysis.Tests
 
                     case "Area1":
                     case "Area2":
-                        // After unused 2s window from module create at `time`.
+                        // After unused 2s window from module create at `time` (and after late Select at +3s when not in-window).
                         Generators.Sequence(
                                 pipeline,
                                 new[]
                                 {
-                                    (new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), time.AddSeconds(2.5)),
+                                    (new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), time.AddSeconds(3.5)),
                                 })
                             .Write(topic, store);
                         break;
 
-                    case "Object Bound":
+                    case "ObjectBound":
                         Generators.Sequence(
                                 pipeline,
                                 new[]
