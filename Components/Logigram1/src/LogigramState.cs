@@ -27,5 +27,11 @@ namespace SAAC.Logigram1
         /// Gets or sets the canonical Battery identity from <c>BatterySpawn.BatteryId</c> (AD-6).
         /// </summary>
         public int BatteryId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the participant identity for this State (1 or 2). Default 0 means unset.
+        /// Independent Gamma cycles run per (BatteryId, PersonId).
+        /// </summary>
+        public int PersonId { get; set; }
     }
 }

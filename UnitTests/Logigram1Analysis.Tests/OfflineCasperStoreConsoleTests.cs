@@ -1642,9 +1642,13 @@ namespace Logigram1Analysis.Tests
                         && s.Status.IndexOf("node-3:", StringComparison.Ordinal) >= 0),
                     "Expected GammaPath node-3 (BatteryId=21).");
 
-                int gammaCount = ReadAnalysisOutcomes(outputPds)
-                    .Count(o => o.Regulation == LogigramRegulation.Gamma && o.BatteryId == 21);
-                Assert.AreEqual(1, gammaCount, "Expected exactly one Gamma at C (not on node-2).");
+                var gammas = ReadAnalysisOutcomes(outputPds)
+                    .Where(o => o.Regulation == LogigramRegulation.Gamma && o.BatteryId == 21)
+                    .ToList();
+
+                // FANOUT_BOTH + Area1/Area2 leave → one Gamma per person (not a node-2 invent).
+                Assert.AreEqual(2, gammas.Count, "Expected Gamma at C for PersonId 1 and 2.");
+                CollectionAssert.AreEquivalent(new[] { 1, 2 }, gammas.Select(g => g.PersonId).ToList());
             }
             finally
             {
@@ -1982,26 +1986,45 @@ namespace Logigram1Analysis.Tests
                         break;
 
                     case "Porte1 ouverture":
-                    case "Porte2 ouverture":
                         Generators.Sequence(
                                 pipeline,
                                 new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time.AddSeconds(0.5)) })
                             .Write(topic, store);
                         break;
 
+                    case "Porte2 ouverture":
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { (new ValueTuple<bool, Vector3>(false, Vector3.Zero), time.AddSeconds(0.5).AddMilliseconds(10)) })
+                            .Write(topic, store);
+                        break;
+
                     case "M1-SelectModule":
-                    case "M2-SelectModule":
                         Generators.Sequence(
                                 pipeline,
                                 new[] { ("6V", time.AddSeconds(selectOffsetSeconds)) })
                             .Write(topic, store);
                         break;
 
+                    case "M2-SelectModule":
+                        // Stagger vs M1 so FullSpeed replay order is deterministic across persons.
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { ("6V", time.AddSeconds(selectOffsetSeconds).AddMilliseconds(10)) })
+                            .Write(topic, store);
+                        break;
+
                     case "M1-Validation":
-                    case "M2-Validation":
                         Generators.Sequence(
                                 pipeline,
                                 new[] { (false, time.AddSeconds(selectOffsetSeconds + 0.2)) })
+                            .Write(topic, store);
+                        break;
+
+                    case "M2-Validation":
+                        Generators.Sequence(
+                                pipeline,
+                                new[] { (false, time.AddSeconds(selectOffsetSeconds + 0.2).AddMilliseconds(10)) })
                             .Write(topic, store);
                         break;
 
@@ -2046,13 +2069,23 @@ namespace Logigram1Analysis.Tests
                         break;
 
                     case "Area1":
-                    case "Area2":
                         // After unused 2s window from module create at `time` (and after late Select at +3s when not in-window).
                         Generators.Sequence(
                                 pipeline,
                                 new[]
                                 {
                                     (new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), time.AddSeconds(3.5)),
+                                })
+                            .Write(topic, store);
+                        break;
+
+                    case "Area2":
+                        // Stagger vs Area1 so both person leaves are distinct FullSpeed messages.
+                        Generators.Sequence(
+                                pipeline,
+                                new[]
+                                {
+                                    (new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), time.AddSeconds(3.5).AddMilliseconds(10)),
                                 })
                             .Write(topic, store);
                         break;
@@ -2111,6 +2144,7 @@ namespace Logigram1Analysis.Tests
                     {
                         Status = state.Status,
                         BatteryId = state.BatteryId,
+                        PersonId = state.PersonId,
                     }));
                 pipeline.Run(ReplayDescriptor.ReplayAll);
             }
@@ -2135,6 +2169,7 @@ namespace Logigram1Analysis.Tests
                     {
                         Regulation = outcome.Regulation,
                         BatteryId = outcome.BatteryId,
+                        PersonId = outcome.PersonId,
                     }));
                 pipeline.Run(ReplayDescriptor.ReplayAll);
             }

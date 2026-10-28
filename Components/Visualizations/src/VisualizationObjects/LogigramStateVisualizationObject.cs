@@ -52,7 +52,7 @@ namespace SAAC.Visualizations
             }
 
             string status = state.Status ?? string.Empty;
-            return $"{status} BatteryId={state.BatteryId}";
+            return $"{status} BatteryId={state.BatteryId} PersonId={state.PersonId}";
         }
 
         /// <inheritdoc/>

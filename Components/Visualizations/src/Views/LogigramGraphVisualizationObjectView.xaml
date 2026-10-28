@@ -6,11 +6,12 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vv="clr-namespace:Microsoft.Psi.Visualization.Views;assembly=Microsoft.Psi.Visualization.Windows"
     mc:Ignorable="d"
-    d:DesignHeight="220"
+    d:DesignHeight="280"
     d:DesignWidth="420">
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -24,89 +25,181 @@
             <TextBlock Text="{Binding DisplayText, Mode=OneWay}" TextWrapping="Wrap" />
         </Border>
 
-        <!-- Gamma-path skeleton: 1 → 2 → 3 → C (GRAPH_SCOPE). Layout stays easy to extend. -->
-        <Border Grid.Row="2" Padding="8,4,8,8">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
-                <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
-                        Margin="0,0,4,0">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="#EDEDED" />
-                            <Setter Property="BorderBrush" Value="#555555" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsNode1Highlighted}" Value="True">
-                                    <Setter Property="Background" Value="#E8B84A" />
-                                    <Setter Property="BorderBrush" Value="#8B4513" />
-                                    <Setter Property="BorderThickness" Value="3" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Text="1" FontSize="18" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
+        <!-- Person 1 skeleton (yellow highlights) -->
+        <Border Grid.Row="2" Padding="8,4,8,4">
+            <StackPanel>
+                <TextBlock Text="{Binding Person1DisplayText, Mode=OneWay}" Margin="0,0,0,4" Foreground="#555555" />
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1Node1Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="1" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
 
-                <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
 
-                <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
-                        Margin="0,0,4,0">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="#EDEDED" />
-                            <Setter Property="BorderBrush" Value="#555555" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsNode2Highlighted}" Value="True">
-                                    <Setter Property="Background" Value="#E8B84A" />
-                                    <Setter Property="BorderBrush" Value="#8B4513" />
-                                    <Setter Property="BorderThickness" Value="3" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Text="2" FontSize="18" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1Node2Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="2" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
 
-                <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
 
-                <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
-                        Margin="0,0,4,0">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="#EDEDED" />
-                            <Setter Property="BorderBrush" Value="#555555" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsNode3Highlighted}" Value="True">
-                                    <Setter Property="Background" Value="#E8B84A" />
-                                    <Setter Property="BorderBrush" Value="#8B4513" />
-                                    <Setter Property="BorderThickness" Value="3" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Text="3" FontSize="18" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1Node3Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="3" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
 
-                <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
 
-                <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="#EDEDED" />
-                            <Setter Property="BorderBrush" Value="#555555" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsTerminalCHighlighted}" Value="True">
-                                    <Setter Property="Background" Value="#E8B84A" />
-                                    <Setter Property="BorderBrush" Value="#8B4513" />
-                                    <Setter Property="BorderThickness" Value="3" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Text="C" FontSize="18" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1TerminalCHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="C" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Person 2 skeleton (orange highlights) -->
+        <Border Grid.Row="3" Padding="8,4,8,8">
+            <StackPanel>
+                <TextBlock Text="{Binding Person2DisplayText, Mode=OneWay}" Margin="0,0,0,4" Foreground="#555555" />
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2Node1Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="1" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2Node2Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="2" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2Node3Highlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="3" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <TextBlock Text="→" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#555555" />
+
+                    <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2TerminalCHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="C" FontSize="18" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </StackPanel>
             </StackPanel>
         </Border>
     </Grid>

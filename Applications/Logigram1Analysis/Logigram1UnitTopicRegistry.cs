@@ -29,6 +29,8 @@ namespace Logigram1Analysis
         /// <summary>
         /// Required AD-7 source topics for <see cref="GammaPathUnitId"/> (fail loud if absent).
         /// Casper stream spelling is <c>ObjectBound</c> (no space). RightWrist streams are optional.
+        /// <c>M1-ModuleOut</c> / <c>M2-ModuleOut</c> are side-mapped in docs but intentionally absent here
+        /// (ROUTE_DOC_ONLY — not consumed by the Gamma FSM).
         /// </summary>
         public static readonly IReadOnlyList<string> GammaPathRequiredTopics = Array.AsReadOnly(new[]
         {

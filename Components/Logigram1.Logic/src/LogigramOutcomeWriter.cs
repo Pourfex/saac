@@ -41,8 +41,8 @@ namespace SAAC.Logigram1.Logic
                 this.ReceiveRegulationDecision,
                 $"{name}-RegulationDecision");
 
-            // Scoped path for story 2.4: stamps BatteryId on Outcome when a Battery scope is supplied.
-            this.RegulationDecisionWithBatteryIn = pipeline.CreateReceiver<(LogigramRegulation Regulation, int BatteryId)>(
+            // Scoped path: stamps BatteryId + PersonId on Outcome when a scope is supplied.
+            this.RegulationDecisionWithBatteryIn = pipeline.CreateReceiver<(LogigramRegulation Regulation, int BatteryId, int PersonId)>(
                 this,
                 this.ReceiveRegulationDecisionWithBattery,
                 $"{name}-RegulationDecisionWithBattery");
@@ -63,15 +63,15 @@ namespace SAAC.Logigram1.Logic
         /// Gets an optional regulation decision input used by this writer's fusion (and tests).
         /// Upstream units must not write <see cref="LogigramOutcome.StreamName"/> themselves;
         /// piping a decision here still keeps this component as the sole Outcome producer.
-        /// Unscoped: emitted <see cref="LogigramOutcome.BatteryId"/> remains default (0).
+        /// Unscoped: emitted <see cref="LogigramOutcome.BatteryId"/> / <see cref="LogigramOutcome.PersonId"/> remain default (0).
         /// </summary>
         public Receiver<LogigramRegulation> RegulationDecisionIn { get; }
 
         /// <summary>
-        /// Gets a Battery-scoped regulation decision input (AD-6). Emits Outcome with
-        /// <see cref="LogigramOutcome.BatteryId"/> stamped from the supplied scope.
+        /// Gets a Battery+Person-scoped regulation decision input (AD-6). Emits Outcome with
+        /// <see cref="LogigramOutcome.BatteryId"/> and <see cref="LogigramOutcome.PersonId"/> stamped.
         /// </summary>
-        public Receiver<(LogigramRegulation Regulation, int BatteryId)> RegulationDecisionWithBatteryIn { get; }
+        public Receiver<(LogigramRegulation Regulation, int BatteryId, int PersonId)> RegulationDecisionWithBatteryIn { get; }
 
         /// <summary>
         /// Gets the number of evidence messages received (any input). Used for honesty checks.
@@ -114,22 +114,23 @@ namespace SAAC.Logigram1.Logic
 
         private void ReceiveRegulationDecision(LogigramRegulation regulation, Envelope envelope)
         {
-            this.EmitOutcome(regulation, batteryId: 0, envelope.OriginatingTime);
+            this.EmitOutcome(regulation, batteryId: 0, personId: 0, envelope.OriginatingTime);
         }
 
         private void ReceiveRegulationDecisionWithBattery(
-            (LogigramRegulation Regulation, int BatteryId) decision,
+            (LogigramRegulation Regulation, int BatteryId, int PersonId) decision,
             Envelope envelope)
         {
-            this.EmitOutcome(decision.Regulation, decision.BatteryId, envelope.OriginatingTime);
+            this.EmitOutcome(decision.Regulation, decision.BatteryId, decision.PersonId, envelope.OriginatingTime);
         }
 
-        private void EmitOutcome(LogigramRegulation regulation, int batteryId, DateTime originatingTime)
+        private void EmitOutcome(LogigramRegulation regulation, int batteryId, int personId, DateTime originatingTime)
         {
             var outcome = new LogigramOutcome
             {
                 Regulation = regulation,
                 BatteryId = batteryId,
+                PersonId = personId,
             };
             this.Out.Post(outcome, originatingTime);
             this.OutcomeEmitCount++;

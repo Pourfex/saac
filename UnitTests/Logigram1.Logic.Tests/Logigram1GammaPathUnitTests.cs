@@ -15,7 +15,7 @@ namespace Logigram1.Logic.Tests
     using SAAC.Logigram1.Logic;
 
     /// <summary>
-    /// I/O matrix for <see cref="Logigram1GammaPathUnit"/> cycle FSM (nodes 1→2→3→C).
+    /// I/O matrix for <see cref="Logigram1GammaPathUnit"/> per-(Battery, Person) cycle FSM.
     /// </summary>
     /// <remarks>
     /// Psi FullSpeed pipelines with overlapping virtual clocks are not safe under MSTest
@@ -60,13 +60,13 @@ namespace Logigram1.Logic.Tests
         }
 
         [TestMethod]
-        public void Node1Only_OpensWindow_NoGamma()
+        public void FanOut_NewModuleId_EmitsNode1ForBothPersons()
         {
             var states = new List<LogigramState>();
             DateTime start = UniqueStart();
             var scopes = new List<(int, DateTime, DateTime)> { (7, start, start.AddSeconds(10)) };
 
-            using (Pipeline pipeline = Pipeline.Create(nameof(this.Node1Only_OpensWindow_NoGamma)))
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.FanOut_NewModuleId_EmitsNode1ForBothPersons)))
             {
                 var unit = new Logigram1GammaPathUnit(pipeline, scopes);
                 unit.StateOut.Do(state => states.Add(CloneState(state)));
@@ -82,15 +82,15 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(0, unit.Node2FireCount);
                 Assert.AreEqual(0, unit.Node3FireCount);
                 Assert.AreEqual(0, unit.GammaDecisionEmitCount);
             }
 
-            Assert.AreEqual(1, states.Count);
-            Assert.AreEqual(7, states[0].BatteryId);
-            StringAssert.Contains(states[0].Status, "node-1");
+            Assert.AreEqual(2, states.Count);
+            Assert.IsTrue(states.Exists(s => s.PersonId == 1 && s.BatteryId == 7 && s.Status.Contains("node-1")));
+            Assert.IsTrue(states.Exists(s => s.PersonId == 2 && s.BatteryId == 7 && s.Status.Contains("node-1")));
         }
 
         [TestMethod]
@@ -108,11 +108,7 @@ namespace Logigram1.Logic.Tests
                 unit.EvidenceOut.PipeTo(writer.EvidenceIn);
                 unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
                 unit.StateOut.Do(state => states.Add(CloneState(state)));
-                writer.Out.Do(o => outcomes.Add(new LogigramOutcome
-                {
-                    Regulation = o.Regulation,
-                    BatteryId = o.BatteryId,
-                }));
+                writer.Out.Do(o => outcomes.Add(CloneOutcome(o)));
 
                 Generators.Sequence(
                         pipeline,
@@ -140,17 +136,158 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(1, unit.Node2FireCount);
                 Assert.AreEqual(0, unit.Node3FireCount);
                 Assert.AreEqual(0, unit.GammaDecisionEmitCount);
                 Assert.AreEqual(0, writer.OutcomeEmitCount);
             }
 
-            Assert.AreEqual(2, states.Count);
-            StringAssert.Contains(states[0].Status, "node-1");
-            StringAssert.Contains(states[1].Status, "node-2");
+            Assert.IsTrue(states.Exists(s => s.PersonId == 1 && s.Status.Contains("node-2")));
+            Assert.IsFalse(states.Exists(s => s.PersonId == 2 && s.Status != null && s.Status.Contains("node-2")));
             Assert.AreEqual(0, outcomes.Count);
+        }
+
+        [TestMethod]
+        public void CrossSide_M2ValidationDoesNotResetPerson1()
+        {
+            var states = new List<LogigramState>();
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (1, start, start.AddSeconds(30)) };
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.CrossSide_M2ValidationDoesNotResetPerson1)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                unit.StateOut.Do(state => states.Add(CloneState(state)));
+                unit.RegulationDecisionWithBatteryOut.Do(_ => { });
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "x-module");
+                var door1 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "x-door1");
+                var door2 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "x-door2");
+                var validation2 = pipeline.CreateEmitter<bool>(unit, "x-val2");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door1.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                door2.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte2 ouverture"));
+                validation2.PipeTo(unit.AddTopicInput<bool>("M2-Validation"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start.AddSeconds(1)),
+                            (1, start.AddSeconds(1.2)),
+                            (2, start.AddSeconds(1.3)),
+                            (3, start.AddSeconds(1.5)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                        else if (step == 1)
+                        {
+                            door1.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 2)
+                        {
+                            door2.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else
+                        {
+                            validation2.Post(true, t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(2, unit.Node1FireCount);
+                Assert.AreEqual(1, unit.Node2FireCount);
+                Assert.AreEqual(0, unit.Node3FireCount);
+            }
+
+            Assert.IsTrue(states.Exists(s => s.PersonId == 2 && s.Status.Contains("node-2")));
+            Assert.IsFalse(states.Exists(s => s.PersonId == 1 && s.Status != null && s.Status.Contains("node-2")));
+        }
+
+        [TestMethod]
+        public void DualPath_Person1Node2Reset_Person2Node3Gamma()
+        {
+            var states = new List<LogigramState>();
+            var outcomes = new List<LogigramOutcome>();
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (9, start, start.AddSeconds(40)) };
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.DualPath_Person1Node2Reset_Person2Node3Gamma)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                var writer = new LogigramOutcomeWriter(pipeline);
+                unit.EvidenceOut.PipeTo(writer.EvidenceIn);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
+                unit.StateOut.Do(state => states.Add(CloneState(state)));
+                writer.Out.Do(o => outcomes.Add(CloneOutcome(o)));
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "d-module");
+                var door1 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "d-door1");
+                var door2 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "d-door2");
+                var select1 = pipeline.CreateEmitter<string>(unit, "d-select1");
+                var area2 = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "d-area2");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door1.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                door2.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte2 ouverture"));
+                select1.PipeTo(unit.AddTopicInput<string>("M1-SelectModule"));
+                area2.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area2"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start.AddSeconds(1)),
+                            (1, start.AddSeconds(1.2)),
+                            (2, start.AddSeconds(1.3)),
+                            (3, start.AddSeconds(1.5)),
+                            (4, start.AddSeconds(3.5)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                        else if (step == 1)
+                        {
+                            door1.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 2)
+                        {
+                            door2.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 3)
+                        {
+                            select1.Post("6V", t);
+                        }
+                        else
+                        {
+                            area2.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(2, unit.Node1FireCount);
+                Assert.AreEqual(1, unit.Node2FireCount);
+                Assert.AreEqual(1, unit.Node3FireCount);
+                Assert.AreEqual(1, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.IsTrue(states.Exists(s => s.PersonId == 1 && s.Status.Contains("node-2")));
+            Assert.IsTrue(states.Exists(s => s.PersonId == 2 && s.Status.Contains("node-3")));
+            Assert.AreEqual(1, outcomes.Count);
+            Assert.AreEqual(LogigramRegulation.Gamma, outcomes[0].Regulation);
+            Assert.AreEqual(9, outcomes[0].BatteryId);
+            Assert.AreEqual(2, outcomes[0].PersonId);
         }
 
         [TestMethod]
@@ -198,7 +335,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(0, unit.Node3FireCount);
                 Assert.AreEqual(0, unit.GammaDecisionEmitCount);
             }
@@ -219,11 +356,7 @@ namespace Logigram1.Logic.Tests
                 unit.EvidenceOut.PipeTo(writer.EvidenceIn);
                 unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
                 unit.StateOut.Do(state => states.Add(CloneState(state)));
-                writer.Out.Do(o => outcomes.Add(new LogigramOutcome
-                {
-                    Regulation = o.Regulation,
-                    BatteryId = o.BatteryId,
-                }));
+                writer.Out.Do(o => outcomes.Add(CloneOutcome(o)));
 
                 var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "n3-module");
                 var door = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "n3-door");
@@ -259,17 +392,18 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(0, unit.Node2FireCount);
                 Assert.AreEqual(1, unit.Node3FireCount);
                 Assert.AreEqual(1, unit.GammaDecisionEmitCount);
                 Assert.AreEqual(1, writer.OutcomeEmitCount);
             }
 
-            Assert.IsTrue(states.Exists(s => s.Status != null && s.Status.Contains("node-3:")));
+            Assert.IsTrue(states.Exists(s => s.PersonId == 1 && s.Status != null && s.Status.Contains("node-3:")));
             Assert.AreEqual(1, outcomes.Count);
             Assert.AreEqual(LogigramRegulation.Gamma, outcomes[0].Regulation);
             Assert.AreEqual(9, outcomes[0].BatteryId);
+            Assert.AreEqual(1, outcomes[0].PersonId);
         }
 
         [TestMethod]
@@ -360,7 +494,6 @@ namespace Logigram1.Logic.Tests
                         })
                     .PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
 
-                // Door closed but no Select in window and no leave — honest empty.
                 Generators.Sequence(
                         pipeline,
                         new List<(ValueTuple<bool, Vector3>, DateTime)>
@@ -371,7 +504,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(0, unit.Node2FireCount);
                 Assert.AreEqual(0, unit.Node3FireCount);
                 Assert.AreEqual(0, unit.GammaDecisionEmitCount);
@@ -484,11 +617,7 @@ namespace Logigram1.Logic.Tests
                 var writer = new LogigramOutcomeWriter(pipeline);
                 unit.EvidenceOut.PipeTo(writer.EvidenceIn);
                 unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
-                writer.Out.Do(o => outcomes.Add(new LogigramOutcome
-                {
-                    Regulation = o.Regulation,
-                    BatteryId = o.BatteryId,
-                }));
+                writer.Out.Do(o => outcomes.Add(CloneOutcome(o)));
 
                 var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "mc-module");
                 var door = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "mc-door");
@@ -499,8 +628,9 @@ namespace Logigram1.Logic.Tests
                 select.PipeTo(unit.AddTopicInput<string>("M1-SelectModule"));
                 area.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
 
-                // Cycle A: node1 → unused 2s → leave → Gamma.
-                // Cycle B: node1 → door+Select in 2s → reset, no Gamma.
+                // Cycle A: node1 → unused 2s → leave → Gamma (person 1).
+                // Cycle B: node1 → door+Select in 2s → reset, no Gamma (person 1).
+                // Person 2 also gets fan-out node-1 each time but is not advanced here.
                 Generators.Sequence(
                         pipeline,
                         new List<(int, DateTime)>
@@ -543,7 +673,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(2, unit.Node1FireCount);
+                Assert.AreEqual(4, unit.Node1FireCount);
                 Assert.AreEqual(1, unit.Node2FireCount);
                 Assert.AreEqual(1, unit.Node3FireCount);
                 Assert.AreEqual(1, unit.GammaDecisionEmitCount);
@@ -551,6 +681,7 @@ namespace Logigram1.Logic.Tests
 
             Assert.AreEqual(1, outcomes.Count);
             Assert.AreEqual(11, outcomes[0].BatteryId);
+            Assert.AreEqual(1, outcomes[0].PersonId);
         }
 
         [TestMethod]
@@ -589,7 +720,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
                 Assert.AreEqual(0, unit.Node2FireCount);
             }
         }
@@ -649,11 +780,7 @@ namespace Logigram1.Logic.Tests
                 var writer = new LogigramOutcomeWriter(pipeline);
                 unit.EvidenceOut.PipeTo(writer.EvidenceIn);
                 unit.RegulationDecisionWithBatteryOut.Do(_ => { });
-                writer.Out.Do(outcome => outcomes.Add(new LogigramOutcome
-                {
-                    Regulation = outcome.Regulation,
-                    BatteryId = outcome.BatteryId,
-                }));
+                writer.Out.Do(outcome => outcomes.Add(CloneOutcome(outcome)));
 
                 Generators.Sequence(
                         pipeline,
@@ -665,7 +792,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.IsTrue(writer.EvidenceMessageCount >= 1);
+                Assert.IsTrue(writer.EvidenceMessageCount >= 2);
                 Assert.AreEqual(0, writer.OutcomeEmitCount);
             }
 
@@ -693,7 +820,7 @@ namespace Logigram1.Logic.Tests
 
                 pipeline.Run(ReplayDescriptor.ReplayAll);
 
-                Assert.AreEqual(1, unit.Node1FireCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
             }
         }
 
@@ -916,12 +1043,116 @@ namespace Logigram1.Logic.Tests
             }
         }
 
+        /// <summary>
+        /// Mirrors Analysis fixture timings: module@0, doors@0.5, Select@3.0 (past window), Area leave@3.5 —
+        /// both persons should reach node-3 + Gamma.
+        /// </summary>
+        [TestMethod]
+        public void FixtureMirror_LateSelectThenBothAreaLeaves_TwoGammas()
+        {
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (15, start, start.AddSeconds(10)) };
+
+            var gammas = new List<(LogigramRegulation Regulation, int BatteryId, int PersonId)>();
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.FixtureMirror_LateSelectThenBothAreaLeaves_TwoGammas)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                unit.RegulationDecisionWithBatteryOut.Do(decision => gammas.Add(decision));
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "f-module");
+                var door1 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "f-door1");
+                var door2 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "f-door2");
+                var select1 = pipeline.CreateEmitter<string>(unit, "f-select1");
+                var select2 = pipeline.CreateEmitter<string>(unit, "f-select2");
+                var area1 = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "f-area1");
+                var area2 = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "f-area2");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door1.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                door2.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte2 ouverture"));
+                select1.PipeTo(unit.AddTopicInput<string>("M1-SelectModule"));
+                select2.PipeTo(unit.AddTopicInput<string>("M2-SelectModule"));
+                area1.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
+                area2.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area2"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start),
+                            (1, start.AddSeconds(0.5)),
+                            (2, start.AddSeconds(0.5).AddTicks(1)),
+                            (3, start.AddSeconds(3)),
+                            (4, start.AddSeconds(3).AddTicks(1)),
+                            (5, start.AddSeconds(3.5)),
+                            (6, start.AddSeconds(3.5).AddTicks(1)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                        else if (step == 1)
+                        {
+                            door1.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 2)
+                        {
+                            door2.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 3)
+                        {
+                            select1.Post("6V", t);
+                        }
+                        else if (step == 4)
+                        {
+                            select2.Post("6V", t);
+                        }
+                        else if (step == 5)
+                        {
+                            area1.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                        else
+                        {
+                            area2.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(2, unit.Node1FireCount);
+                Assert.AreEqual(0, unit.Node2FireCount);
+                Assert.AreEqual(2, unit.Node3FireCount);
+                Assert.AreEqual(2, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.AreEqual(2, gammas.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { 1, 2 },
+                gammas.ConvertAll(g => g.PersonId));
+            Assert.IsTrue(gammas.TrueForAll(g =>
+                g.Regulation == LogigramRegulation.Gamma && g.BatteryId == 15));
+        }
+
         private static LogigramState CloneState(LogigramState state)
         {
             return new LogigramState
             {
                 Status = state.Status,
                 BatteryId = state.BatteryId,
+                PersonId = state.PersonId,
+            };
+        }
+
+        private static LogigramOutcome CloneOutcome(LogigramOutcome outcome)
+        {
+            return new LogigramOutcome
+            {
+                Regulation = outcome.Regulation,
+                BatteryId = outcome.BatteryId,
+                PersonId = outcome.PersonId,
             };
         }
     }

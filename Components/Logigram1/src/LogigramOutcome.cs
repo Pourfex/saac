@@ -30,16 +30,21 @@ namespace SAAC.Logigram1
         public int BatteryId { get; set; }
 
         /// <summary>
+        /// Gets or sets the participant identity for this Outcome (1 or 2). Default 0 means unset.
+        /// </summary>
+        public int PersonId { get; set; }
+
+        /// <summary>
         /// Returns a PsiStudio-friendly label (Messages legend / Outcome viz shell).
         /// Does not invent a regulation when <see cref="Regulation"/> is null.
         /// </summary>
-        /// <returns>Regulation contract label + BatteryId, or an honest absent label.</returns>
+        /// <returns>Regulation contract label + BatteryId + PersonId, or an honest absent label.</returns>
         public override string ToString()
         {
             string regulation = this.Regulation.HasValue
                 ? LogigramRegulationLabels.ToContractLabel(this.Regulation.Value)
                 : "absent";
-            return $"{regulation} BatteryId={this.BatteryId}";
+            return $"{regulation} BatteryId={this.BatteryId} PersonId={this.PersonId}";
         }
     }
 }

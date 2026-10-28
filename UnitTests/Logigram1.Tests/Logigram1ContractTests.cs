@@ -124,13 +124,13 @@ namespace Logigram1.Tests
         [TestMethod]
         public void LogigramOutcome_ToString_ShowsRegulationOrAbsentAndBatteryId()
         {
-            Assert.AreEqual("absent BatteryId=0", new LogigramOutcome().ToString());
+            Assert.AreEqual("absent BatteryId=0 PersonId=0", new LogigramOutcome().ToString());
             Assert.AreEqual(
-                "Gamma BatteryId=42",
+                "Gamma BatteryId=42 PersonId=0",
                 new LogigramOutcome { Regulation = LogigramRegulation.Gamma, BatteryId = 42 }.ToString());
             Assert.AreEqual(
-                "N/A BatteryId=1",
-                new LogigramOutcome { Regulation = LogigramRegulation.NA, BatteryId = 1 }.ToString());
+                "N/A BatteryId=1 PersonId=2",
+                new LogigramOutcome { Regulation = LogigramRegulation.NA, BatteryId = 1, PersonId = 2 }.ToString());
         }
 
         /// <summary>Contracts project must stay Psi-free (Additional Assemblies safe).</summary>
