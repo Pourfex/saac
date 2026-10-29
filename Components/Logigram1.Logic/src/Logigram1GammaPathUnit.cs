@@ -20,6 +20,21 @@ namespace SAAC.Logigram1.Logic
     /// <c>GeneratorArea</c> with door closed or hand-near Generateur AABB → Gamma (C) via the writer.
     /// No Alpha/Beta/gaze/speech. <c>M1-ModuleOut</c> / <c>M2-ModuleOut</c> are not consumed.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Input contract: topic payloads must reach the unit in non-decreasing originating-time order across
+    /// <b>all</b> topics (Analysis feeds <see cref="AddOrderedTopicInput"/> from an OT-sorted sequence).
+    /// Per-topic importer receivers replay each stream in file order, which can interleave streams far out of
+    /// originating-time order; the unit is causal (State/Evidence/Outcome emitters need increasing times), so
+    /// out-of-order delivery would relocate States and could let a leave "complete" a cycle whose node 1 comes
+    /// <i>later</i> in originating time. <see cref="OutOfOrderInputCount"/> reports contract violations.
+    /// </para>
+    /// <para>
+    /// Honest scrub: node-3 only fires for a leave that is strictly after the node-1 create + <see cref="Node2Window"/>
+    /// of the same (Battery, Person) cycle; the node-3 State and the Gamma Outcome share the leave originating time
+    /// (the Outcome is never earlier than its node-3 State).
+    /// </para>
+    /// </remarks>
     public class Logigram1GammaPathUnit
     {
         /// <summary>Canonical enabled-unit id (matches Analysis registry / config).</summary>
@@ -73,6 +88,7 @@ namespace SAAC.Logigram1.Logic
         private DateTime lastStateOriginatingTime = DateTime.MinValue;
         private DateTime lastEvidenceOriginatingTime = DateTime.MinValue;
         private DateTime lastRegulationOriginatingTime = DateTime.MinValue;
+        private DateTime lastInputOriginatingTime = DateTime.MinValue;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Logigram1GammaPathUnit"/> class.
@@ -118,6 +134,12 @@ namespace SAAC.Logigram1.Logic
 
         /// <summary>Gets how many topic hits were observed (any input).</summary>
         public long TopicHitCount { get; private set; }
+
+        /// <summary>
+        /// Gets how many topic hits arrived with an originating time earlier than a previously seen hit
+        /// (input-order contract violation; always 0 when fed through <see cref="AddOrderedTopicInput"/>).
+        /// </summary>
+        public long OutOfOrderInputCount { get; private set; }
 
         /// <summary>Gets how many State messages were emitted.</summary>
         public long StateEmitCount { get; private set; }
@@ -193,6 +215,23 @@ namespace SAAC.Logigram1.Logic
                 this,
                 (payload, envelope) => this.OnTopicPayload(topicName, payload, envelope.OriginatingTime),
                 $"{this.name}-Topic-{id}-{SanitizeReceiverName(topicName)}");
+        }
+
+        /// <summary>
+        /// Adds one receiver for the globally originating-time-ordered topic sequence. The caller must deliver
+        /// events in non-decreasing originating time across all topics (see class remarks). Call before the pipeline runs.
+        /// </summary>
+        /// <returns>The ordered topic receiver.</returns>
+        public Receiver<GammaPathTopicEvent> AddOrderedTopicInput()
+        {
+            int id = this.topicInputCount++;
+            return this.pipeline.CreateReceiver<GammaPathTopicEvent>(
+                this,
+                (topicEvent, envelope) => this.OnTopicPayload<object>(
+                    topicEvent.TopicName,
+                    topicEvent.Payload,
+                    envelope.OriginatingTime),
+                $"{this.name}-Ordered-{id}");
         }
 
         /// <summary>
@@ -336,6 +375,15 @@ namespace SAAC.Logigram1.Logic
         private void OnTopicPayload<T>(string topicName, T payload, DateTime originatingTime)
         {
             this.TopicHitCount++;
+
+            if (originatingTime < this.lastInputOriginatingTime)
+            {
+                this.OutOfOrderInputCount++;
+            }
+            else
+            {
+                this.lastInputOriginatingTime = originatingTime;
+            }
 
             switch (topicName)
             {
@@ -513,6 +561,14 @@ namespace SAAC.Logigram1.Logic
                 return;
             }
 
+            // Scrub honesty: the leave must come strictly after this cycle's node-1 + 2s window in
+            // originating time. A leave at or before node 1 (e.g. out-of-order delivery) never completes it.
+            if (!this.node1CreateByCycle.TryGetValue(key, out DateTime node1Time)
+                || originatingTime - node1Time <= Node2Window)
+            {
+                return;
+            }
+
             bool doorClosed = this.IsDoorClosed(side);
             bool handNear = this.IsHandNearGenerateur(side);
             if (!doorClosed && !handNear)
@@ -527,7 +583,7 @@ namespace SAAC.Logigram1.Logic
                     : "hand-near";
 
             this.Node3FireCount++;
-            this.EmitNodeFire(
+            DateTime node3StateTime = this.EmitNodeFire(
                 status: $"node-3: {branch} + leave {GeneratorAreaInfo} (Area{side})",
                 evidenceId: $"node-3:Area{side}:{branch}",
                 originatingTime: originatingTime,
@@ -536,8 +592,9 @@ namespace SAAC.Logigram1.Logic
             // Cycle completes at C — reset so a later leave cannot re-fire without a new node 1.
             this.ResetCycle(key);
 
+            // Outcome never precedes its node-3 State (same leave OT unless a tie bumped the State by ticks).
             DateTime regulationTime = EnsureStrictlyIncreasing(
-                originatingTime,
+                node3StateTime > originatingTime ? node3StateTime : originatingTime,
                 ref this.lastRegulationOriginatingTime);
             this.RegulationDecisionWithBatteryOut.Post(
                 (LogigramRegulation.Gamma, batteryId, personId),
@@ -720,7 +777,7 @@ namespace SAAC.Logigram1.Logic
             this.pendingNode2ByCycle.Remove(key);
         }
 
-        private void EmitNodeFire(string status, string evidenceId, DateTime originatingTime, int personId)
+        private DateTime EmitNodeFire(string status, string evidenceId, DateTime originatingTime, int personId)
         {
             int batteryId = this.ResolveBatteryId(originatingTime);
 
@@ -746,6 +803,7 @@ namespace SAAC.Logigram1.Logic
                 },
                 evidenceTime);
             this.EvidenceEmitCount++;
+            return stateTime;
         }
     }
 }

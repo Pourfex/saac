@@ -1485,6 +1485,167 @@ namespace Logigram1Analysis.Tests
             }
         }
 
+        /// <summary>
+        /// Scrub honesty (3.6): persisted node-1 precedes, and node-3 shares the originating time of, every
+        /// Gamma Outcome for that (Battery, Person) — States are not relocated by a second OT remapper.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithGammaPath_PersistedStatesAlignWithGammaOutcomeTimes()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-gamma-align-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "GammaAlign.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.GammaPathTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)> { (15, start, start.AddSeconds(10)) });
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds) + ", \"EnabledUnits\": [ \"Logigram1.GammaPath\" ] }");
+
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--config", configPath },
+                    new StringWriter(),
+                    new StringWriter());
+                Assert.AreEqual(0, exit);
+
+                string outputPds = Path.Combine(folder, "GammaAlign.Logigram1Analysis.pds");
+                var states = ReadAnalysisStatesWithTime(outputPds);
+                var outcomes = ReadAnalysisOutcomesWithTime(outputPds);
+                var gammas = outcomes.Where(o => o.Value.Regulation == LogigramRegulation.Gamma).ToList();
+                Assert.AreEqual(2, gammas.Count, "Expected one Gamma per person.");
+
+                foreach ((DateTime outcomeTime, LogigramOutcome gamma) in gammas)
+                {
+                    var samePerson = states
+                        .Where(s => s.Value.BatteryId == gamma.BatteryId && s.Value.PersonId == gamma.PersonId)
+                        .ToList();
+                    Assert.IsTrue(
+                        samePerson.Any(s => s.Value.Status.StartsWith("node-1:", StringComparison.Ordinal)
+                            && s.Time < outcomeTime),
+                        $"Gamma P{gamma.PersonId} has no earlier node-1 State.");
+                    var node3 = samePerson
+                        .Where(s => s.Value.Status.StartsWith("node-3:", StringComparison.Ordinal)
+                            && s.Time <= outcomeTime
+                            && outcomeTime - s.Time < TimeSpan.FromMilliseconds(1))
+                        .ToList();
+                    Assert.AreEqual(
+                        1,
+                        node3.Count,
+                        $"Gamma P{gamma.PersonId} must have its node-3 State at the Outcome time (not collapsed elsewhere).");
+                }
+
+                // Leave is at +3.5s; no State may be relocated past the leave window (old remapper piled them up).
+                Assert.IsTrue(
+                    states.All(s => s.Time <= start.AddSeconds(3.6)),
+                    "Persisted State times must stay module/leave-aligned.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>
+        /// Leave (door closed) with no prior node 1 — here Module status only arrives after both leaves, with all
+        /// hits unscoped (BatteryId 0) — persists no node-3 State and no Gamma.
+        /// </summary>
+        [TestMethod]
+        public void Run_WithGammaPath_LeaveWithoutPriorNode1_PersistsNoGamma()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-gamma-orphan-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "GammaOrphan.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.GammaPathTopics,
+
+                    // Scope far from every hit → BatteryId 0 (unscoped).
+                    batterySegments: new List<(int, DateTime, DateTime)> { (7, start.AddSeconds(500), start.AddSeconds(510)) },
+                    moduleOffsetSeconds: 10);
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds) + ", \"EnabledUnits\": [ \"Logigram1.GammaPath\" ] }");
+
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--config", configPath },
+                    new StringWriter(),
+                    new StringWriter());
+                Assert.AreEqual(0, exit);
+
+                string outputPds = Path.Combine(folder, "GammaOrphan.Logigram1Analysis.pds");
+                var states = ReadAnalysisStatesWithTime(outputPds);
+                Assert.IsTrue(states.Any(s => s.Value.Status.StartsWith("node-1:", StringComparison.Ordinal)));
+                Assert.IsFalse(
+                    states.Any(s => s.Value.Status.StartsWith("node-3:", StringComparison.Ordinal)),
+                    "Leave before any node 1 must not fire node-3.");
+                Assert.AreEqual(
+                    0,
+                    ReadAnalysisOutcomesWithTime(outputPds).Count(o => o.Value.Regulation == LogigramRegulation.Gamma),
+                    "Leave before any node 1 must not persist a Gamma.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>UNSCOPED_GAMMA=B: a complete unscoped cycle (node 1 → unused window → leave) still Gammas with BatteryId 0.</summary>
+        [TestMethod]
+        public void Run_WithGammaPath_UnscopedCompleteCycle_StillGammasWithBatteryZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-gamma-unscoped-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "GammaUnscoped.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.GammaPathTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)> { (7, start.AddSeconds(500), start.AddSeconds(510)) });
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds) + ", \"EnabledUnits\": [ \"Logigram1.GammaPath\" ] }");
+
+                int exit = OfflineCasperStoreConsole.Run(
+                    new[] { "--config", configPath },
+                    new StringWriter(),
+                    new StringWriter());
+                Assert.AreEqual(0, exit);
+
+                string outputPds = Path.Combine(folder, "GammaUnscoped.Logigram1Analysis.pds");
+                var gammas = ReadAnalysisOutcomesWithTime(outputPds)
+                    .Where(o => o.Value.Regulation == LogigramRegulation.Gamma)
+                    .ToList();
+                Assert.AreEqual(2, gammas.Count);
+                Assert.IsTrue(gammas.All(g => g.Value.BatteryId == 0));
+                CollectionAssert.AreEquivalent(new[] { 1, 2 }, gammas.Select(g => g.Value.PersonId).ToList());
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
         /// <summary>GammaPath enabled with missing topics → explicit gaps; exit non-zero; no Dataset.</summary>
         [TestMethod]
         public void Run_WithGammaPathMissingTopics_ListsGapsAndReturnsNonZero()
@@ -1741,6 +1902,10 @@ namespace Logigram1Analysis.Tests
         /// <param name="selectInNode2Window">
         /// When true, Select fires inside the 2s-from-create window (node-2 reset, no Gamma).
         /// </param>
+        /// <param name="moduleOffsetSeconds">
+        /// Seconds after the fixture start at which <c>Module status</c> is written (default 0). A large offset places
+        /// node 1 after the Area leaves, so those leaves have no prior node-1 cycle.
+        /// </param>
         private static Dataset CreatePreTestShapedDataset(
             string folder,
             string pdsPath,
@@ -1750,7 +1915,8 @@ namespace Logigram1Analysis.Tests
             bool includeBatteryBoundaries = true,
             IReadOnlyList<(int BatteryId, DateTime Spawn, DateTime Finish)> batterySegments = null,
             bool emptyBatteryStreams = false,
-            bool selectInNode2Window = false)
+            bool selectInNode2Window = false,
+            double moduleOffsetSeconds = 0)
         {
             DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
 
@@ -1836,7 +2002,8 @@ namespace Logigram1Analysis.Tests
                 emptyBatteryStreams: includeBatteryBoundaries && emptyBatteryStreams,
                 firstUnitTopics: firstUnitTopics,
                 node3Topics: node3Topics,
-                selectInNode2Window: selectInNode2Window);
+                selectInNode2Window: selectInNode2Window,
+                moduleOffsetSeconds: moduleOffsetSeconds);
 
             var dataset = new Dataset(Path.GetFileNameWithoutExtension(pdsPath), pdsPath, autoSave: true);
             Session session = dataset.AddEmptySession("Session");
@@ -1914,7 +2081,8 @@ namespace Logigram1Analysis.Tests
             bool emptyBatteryStreams = false,
             IEnumerable<string> firstUnitTopics = null,
             IEnumerable<string> node3Topics = null,
-            bool selectInNode2Window = false)
+            bool selectInNode2Window = false,
+            double moduleOffsetSeconds = 0)
         {
             string storePath = storeRoot ?? Path.Combine(folder, storeName);
             Directory.CreateDirectory(storePath);
@@ -1932,7 +2100,13 @@ namespace Logigram1Analysis.Tests
 
                 if (firstUnitTopics != null)
                 {
-                    WriteFirstUnitTopicStreams(pipeline, store, firstUnitTopics, start, selectInNode2Window);
+                    WriteFirstUnitTopicStreams(
+                        pipeline,
+                        store,
+                        firstUnitTopics,
+                        start,
+                        selectInNode2Window,
+                        moduleOffsetSeconds);
                 }
 
                 if (node3Topics != null)
@@ -1971,7 +2145,8 @@ namespace Logigram1Analysis.Tests
             PsiExporter store,
             IEnumerable<string> topics,
             DateTime time,
-            bool selectInNode2Window = false)
+            bool selectInNode2Window = false,
+            double moduleOffsetSeconds = 0)
         {
             double selectOffsetSeconds = selectInNode2Window ? 1.0 : 3.0;
             foreach (string topic in topics)
@@ -1981,7 +2156,7 @@ namespace Logigram1Analysis.Tests
                     case "Module status":
                         Generators.Sequence(
                                 pipeline,
-                                new[] { (new ValueTuple<int, string>(1, "OK"), time) })
+                                new[] { (new ValueTuple<int, string>(1, "OK"), time.AddSeconds(moduleOffsetSeconds)) })
                             .Write(topic, store);
                         break;
 
@@ -2146,6 +2321,64 @@ namespace Logigram1Analysis.Tests
                         BatteryId = state.BatteryId,
                         PersonId = state.PersonId,
                     }));
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+            }
+
+            return results;
+        }
+
+        private static List<(DateTime Time, LogigramState Value)> ReadAnalysisStatesWithTime(string analysisPdsPath)
+        {
+            var results = new List<(DateTime, LogigramState)>();
+            Dataset dataset = Dataset.Load(analysisPdsPath);
+            IStreamMetadata metadata = OfflineCasperStoreConsole.FindStreamByExactName(
+                dataset,
+                LogigramState.StreamName);
+            Assert.IsNotNull(metadata, "Expected Logigram1.State in analysis Dataset.");
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(ReadAnalysisStatesWithTime)))
+            {
+                PsiImporter store = PsiStore.Open(pipeline, metadata.StoreName, metadata.StorePath);
+                store.OpenStream<LogigramState>(metadata.Name)
+                    .Do((state, envelope) => results.Add((
+                        envelope.OriginatingTime,
+                        new LogigramState
+                        {
+                            Status = state.Status,
+                            BatteryId = state.BatteryId,
+                            PersonId = state.PersonId,
+                        })));
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+            }
+
+            return results;
+        }
+
+        /// <summary>Reads Outcomes with originating times; empty when the Outcome stream was never created.</summary>
+        private static List<(DateTime Time, LogigramOutcome Value)> ReadAnalysisOutcomesWithTime(string analysisPdsPath)
+        {
+            var results = new List<(DateTime, LogigramOutcome)>();
+            Dataset dataset = Dataset.Load(analysisPdsPath);
+            IStreamMetadata metadata = OfflineCasperStoreConsole.FindStreamByExactName(
+                dataset,
+                LogigramOutcome.StreamName);
+            if (metadata == null)
+            {
+                return results;
+            }
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(ReadAnalysisOutcomesWithTime)))
+            {
+                PsiImporter store = PsiStore.Open(pipeline, metadata.StoreName, metadata.StorePath);
+                store.OpenStream<LogigramOutcome>(metadata.Name)
+                    .Do((outcome, envelope) => results.Add((
+                        envelope.OriginatingTime,
+                        new LogigramOutcome
+                        {
+                            Regulation = outcome.Regulation,
+                            BatteryId = outcome.BatteryId,
+                            PersonId = outcome.PersonId,
+                        })));
                 pipeline.Run(ReplayDescriptor.ReplayAll);
             }
 

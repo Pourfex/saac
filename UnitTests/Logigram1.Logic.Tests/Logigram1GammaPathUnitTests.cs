@@ -546,6 +546,282 @@ namespace Logigram1.Logic.Tests
             }
         }
 
+        /// <summary>3.6 / UNSCOPED_GAMMA=B: leave before any node 1 never Gammas, scoped or unscoped (BatteryId 0).</summary>
+        [TestMethod]
+        public void LeaveBeforeNode1_Unscoped_NoNode3NoGamma()
+        {
+            DateTime start = UniqueStart();
+            var states = new List<LogigramState>();
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.LeaveBeforeNode1_Unscoped_NoNode3NoGamma)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, Array.Empty<(int, DateTime, DateTime)>());
+                unit.RegulationDecisionWithBatteryOut.Do(_ => { });
+                unit.StateOut.Do(state => states.Add(CloneState(state)));
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "ub-module");
+                var door = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "ub-door");
+                var area = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "ub-area");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                area.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
+
+                // Door closed, leave at +3 (twice: a second leave must not "arm" anything), module only at +10.
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start.AddSeconds(1)),
+                            (1, start.AddSeconds(3)),
+                            (2, start.AddSeconds(4)),
+                            (3, start.AddSeconds(10)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            door.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else if (step == 1 || step == 2)
+                        {
+                            area.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                        else
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(0, unit.OutOfOrderInputCount);
+                Assert.AreEqual(2, unit.Node1FireCount);
+                Assert.AreEqual(0, unit.Node3FireCount);
+                Assert.AreEqual(0, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.IsFalse(states.Exists(s => s.Status.Contains("node-3")));
+        }
+
+        /// <summary>UNSCOPED_GAMMA=B: a complete unscoped cycle still Gammas, stamped BatteryId 0, on the leave OT.</summary>
+        [TestMethod]
+        public void UnscopedNode1ThenLeave_GammaWithBatteryZero_StatesAlignedWithOutcome()
+        {
+            DateTime start = UniqueStart();
+            var states = new List<(DateTime Time, LogigramState State)>();
+            var outcomes = new List<(DateTime Time, LogigramOutcome Outcome)>();
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.UnscopedNode1ThenLeave_GammaWithBatteryZero_StatesAlignedWithOutcome)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, Array.Empty<(int, DateTime, DateTime)>());
+                var writer = new LogigramOutcomeWriter(pipeline);
+                unit.EvidenceOut.PipeTo(writer.EvidenceIn);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
+                unit.StateOut.Do((state, envelope) => states.Add((envelope.OriginatingTime, CloneState(state))));
+                writer.Out.Do((outcome, envelope) => outcomes.Add((envelope.OriginatingTime, CloneOutcome(outcome))));
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "ug-module");
+                var door = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "ug-door");
+                var area = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "ug-area");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                area.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start.AddSeconds(1)),
+                            (1, start.AddSeconds(1.2)),
+                            (2, start.AddSeconds(30)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                        else if (step == 1)
+                        {
+                            door.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else
+                        {
+                            area.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(1, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.AreEqual(1, outcomes.Count);
+            Assert.AreEqual(0, outcomes[0].Outcome.BatteryId);
+            Assert.AreEqual(1, outcomes[0].Outcome.PersonId);
+            Assert.AreEqual(start.AddSeconds(30), outcomes[0].Time);
+
+            var node3 = states.FindAll(s => s.State.PersonId == 1 && s.State.Status.StartsWith("node-3:", StringComparison.Ordinal));
+            Assert.AreEqual(1, node3.Count);
+            Assert.AreEqual(outcomes[0].Time, node3[0].Time);
+            Assert.AreEqual(0, node3[0].State.BatteryId);
+            Assert.IsTrue(
+                states.Exists(s => s.State.PersonId == 1
+                    && s.State.Status.StartsWith("node-1:", StringComparison.Ordinal)
+                    && s.Time < outcomes[0].Time),
+                "node-1 State must sit before the Gamma on the timeline.");
+            Assert.IsFalse(states.Exists(s => s.State.Status.StartsWith("node-2", StringComparison.Ordinal)));
+        }
+
+        /// <summary>Both persons leave at the very same OT: each Outcome is never earlier than its node-3 State.</summary>
+        [TestMethod]
+        public void SameLeaveTime_BothPersons_OutcomeNeverPrecedesNode3State()
+        {
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (4, start, start.AddSeconds(30)) };
+            var states = new List<(DateTime Time, LogigramState State)>();
+            var outcomes = new List<(DateTime Time, LogigramOutcome Outcome)>();
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.SameLeaveTime_BothPersons_OutcomeNeverPrecedesNode3State)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                var writer = new LogigramOutcomeWriter(pipeline);
+                unit.EvidenceOut.PipeTo(writer.EvidenceIn);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
+                unit.StateOut.Do((state, envelope) => states.Add((envelope.OriginatingTime, CloneState(state))));
+                writer.Out.Do((outcome, envelope) => outcomes.Add((envelope.OriginatingTime, CloneOutcome(outcome))));
+
+                var module = pipeline.CreateEmitter<ValueTuple<int, string>>(unit, "tie-module");
+                var door1 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "tie-door1");
+                var door2 = pipeline.CreateEmitter<ValueTuple<bool, Vector3>>(unit, "tie-door2");
+                var area1 = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "tie-area1");
+                var area2 = pipeline.CreateEmitter<ValueTuple<int, bool, string>>(unit, "tie-area2");
+                module.PipeTo(unit.AddTopicInput<ValueTuple<int, string>>("Module status"));
+                door1.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte1 ouverture"));
+                door2.PipeTo(unit.AddTopicInput<ValueTuple<bool, Vector3>>("Porte2 ouverture"));
+                area1.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area1"));
+                area2.PipeTo(unit.AddTopicInput<ValueTuple<int, bool, string>>("Area2"));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(int, DateTime)>
+                        {
+                            (0, start.AddSeconds(1)),
+                            (1, start.AddSeconds(1.2)),
+                            (2, start.AddSeconds(5)),
+                        })
+                    .Do((step, envelope) =>
+                    {
+                        DateTime t = envelope.OriginatingTime;
+                        if (step == 0)
+                        {
+                            module.Post(new ValueTuple<int, string>(1, "OK"), t);
+                        }
+                        else if (step == 1)
+                        {
+                            door1.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                            door2.Post(new ValueTuple<bool, Vector3>(false, Vector3.Zero), t);
+                        }
+                        else
+                        {
+                            area1.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                            area2.Post(new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), t);
+                        }
+                    });
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(2, unit.GammaDecisionEmitCount);
+            }
+
+            Assert.AreEqual(2, outcomes.Count);
+            foreach ((DateTime outcomeTime, LogigramOutcome outcome) in outcomes)
+            {
+                var node3 = states.FindAll(s => s.State.PersonId == outcome.PersonId
+                    && s.State.Status.StartsWith("node-3:", StringComparison.Ordinal));
+                Assert.AreEqual(1, node3.Count);
+                Assert.IsTrue(node3[0].Time <= outcomeTime, "node-3 State must be at or before its Gamma Outcome.");
+                Assert.IsTrue(outcomeTime - node3[0].Time < TimeSpan.FromMilliseconds(1));
+                Assert.IsTrue(outcomeTime - start.AddSeconds(5) < TimeSpan.FromMilliseconds(1));
+            }
+        }
+
+        /// <summary>The globally ordered input path drives the same cycle and reports no order violations.</summary>
+        [TestMethod]
+        public void OrderedTopicInput_DrivesCycle_NoOrderViolation()
+        {
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (6, start, start.AddSeconds(30)) };
+            var outcomes = new List<LogigramOutcome>();
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.OrderedTopicInput_DrivesCycle_NoOrderViolation)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                var writer = new LogigramOutcomeWriter(pipeline);
+                unit.EvidenceOut.PipeTo(writer.EvidenceIn);
+                unit.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
+                writer.Out.Do(o => outcomes.Add(CloneOutcome(o)));
+
+                Generators.Sequence(
+                        pipeline,
+                        new List<(GammaPathTopicEvent, DateTime)>
+                        {
+                            (new GammaPathTopicEvent("Module status", new ValueTuple<int, string>(1, "OK")), start.AddSeconds(1)),
+                            (new GammaPathTopicEvent("Porte1 ouverture", new ValueTuple<bool, Vector3>(false, Vector3.Zero)), start.AddSeconds(1.5)),
+                            (new GammaPathTopicEvent("Area1", new ValueTuple<int, bool, string>(-1, false, "GeneratorArea")), start.AddSeconds(4)),
+                        })
+                    .PipeTo(unit.AddOrderedTopicInput());
+
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+
+                Assert.AreEqual(0, unit.OutOfOrderInputCount);
+                Assert.AreEqual(3, unit.TopicHitCount);
+                Assert.AreEqual(1, unit.Node3FireCount);
+            }
+
+            Assert.AreEqual(1, outcomes.Count);
+            Assert.AreEqual(6, outcomes[0].BatteryId);
+            Assert.AreEqual(1, outcomes[0].PersonId);
+        }
+
+        /// <summary>
+        /// Out-of-order delivery: a later-OT door advances the cycle to Node3Eligible, then a leave with an
+        /// earlier OT (inside node-1 + 2s) arrives. The scrub guard must refuse it and the violation is counted.
+        /// </summary>
+        [TestMethod]
+        public void LeaveOlderThanNode1Window_DeliveredAfterLaterEvent_NoGammaAndCountsOutOfOrder()
+        {
+            DateTime start = UniqueStart();
+            var scopes = new List<(int, DateTime, DateTime)> { (2, start, start.AddSeconds(30)) };
+
+            // Psi reorders Emitter.Post by OT, so invoke OnTopicPayload in call order (reflection).
+            using (Pipeline pipeline = Pipeline.Create(nameof(this.LeaveOlderThanNode1Window_DeliveredAfterLaterEvent_NoGammaAndCountsOutOfOrder)))
+            {
+                var unit = new Logigram1GammaPathUnit(pipeline, scopes);
+                unit.RegulationDecisionWithBatteryOut.Do(_ => { });
+
+                System.Reflection.MethodInfo onTopic = typeof(Logigram1GammaPathUnit)
+                    .GetMethod("OnTopicPayload", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                Assert.IsNotNull(onTopic);
+
+                void Hit<T>(string topic, T payload, DateTime ot)
+                {
+                    onTopic.MakeGenericMethod(typeof(T)).Invoke(unit, new object[] { topic, payload, ot });
+                }
+
+                // Module T+1, door T+6 (→ Node3Eligible), leave stamped T+2 (still inside window).
+                Hit("Module status", new ValueTuple<int, string>(1, "OK"), start.AddSeconds(1));
+                Hit("Porte1 ouverture", new ValueTuple<bool, Vector3>(false, Vector3.Zero), start.AddSeconds(6));
+                Hit("Area1", new ValueTuple<int, bool, string>(-1, false, "GeneratorArea"), start.AddSeconds(2));
+
+                Assert.AreEqual(0, unit.Node3FireCount);
+                Assert.AreEqual(0, unit.GammaDecisionEmitCount);
+                Assert.IsTrue(unit.OutOfOrderInputCount > 0, "Late older-OT leave must be counted as out of order.");
+            }
+        }
+
         [TestMethod]
         public void Node2ThenLeave_NoGamma()
         {

@@ -92,6 +92,12 @@ namespace Logigram1Analysis
 
             IReadOnlyList<string> optionalTopics = Logigram1UnitTopicRegistry.ResolveOptionalTopics(enabledUnits);
 
+            // Pass 1: read every topic of the union, then merge into one globally OT-ordered sequence
+            // (importers do not interleave streams by originating time — see GammaPathTopicOrdering).
+            IReadOnlyList<(GammaPathTopicEvent Event, DateTime OriginatingTime)> orderedEvents =
+                GammaPathTopicOrdering.Order(LoadTopicEvents(dataset, lookup, requiredTopics, optionalTopics));
+
+            // Pass 2: causal FullSpeed replay of the ordered sequence through the cycle FSM + Outcome writer.
             using (Pipeline pipeline = Pipeline.Create(nameof(FirstUnitPipelineRunner)))
             {
                 var writer = new LogigramOutcomeWriter(pipeline);
@@ -99,87 +105,17 @@ namespace Logigram1Analysis
                 gammaPath.EvidenceOut.PipeTo(writer.EvidenceIn);
                 gammaPath.RegulationDecisionWithBatteryOut.PipeTo(writer.RegulationDecisionWithBatteryIn);
 
-                var importers = new Dictionary<string, PsiImporter>(StringComparer.Ordinal);
-                var attachedTopics = new HashSet<string>(StringComparer.Ordinal);
+                Generators.Sequence(pipeline, orderedEvents)
+                    .PipeTo(gammaPath.AddOrderedTopicInput());
 
-                foreach (string topic in requiredTopics)
-                {
-                    if (!attachedTopics.Add(topic))
-                    {
-                        continue;
-                    }
-
-                    IStreamMetadata metadata = lookup(dataset, topic);
-                    if (metadata == null)
-                    {
-                        throw new InvalidOperationException(
-                            $"Required Logic topic stream missing at run time: {topic}.");
-                    }
-
-                    PsiImporter importer = GetOrOpenImporter(pipeline, importers, metadata);
-                    AttachTopic(importer, gammaPath, topic, metadata.Name);
-                }
-
-                foreach (string topic in optionalTopics)
-                {
-                    if (!attachedTopics.Add(topic))
-                    {
-                        continue;
-                    }
-
-                    IStreamMetadata metadata = lookup(dataset, topic);
-                    if (metadata == null)
-                    {
-                        continue;
-                    }
-
-                    PsiImporter importer = GetOrOpenImporter(pipeline, importers, metadata);
-                    AttachTopic(importer, gammaPath, topic, metadata.Name);
-                }
-
+                // State / Outcome keep the unit's own module- and leave-aligned originating times:
+                // no second remapper (it relocated node-3 States onto the session's last State time).
                 PsiExporter exporter = PsiStore.Create(pipeline, AnalysisStoreName, storeRoot);
-                DateTime lastStateWrite = DateTime.MinValue;
-                gammaPath.StateOut
-                    .Process<LogigramState, LogigramState>(
-                        (state, envelope, emitter) =>
-                        {
-                            DateTime time = envelope.OriginatingTime;
-                            if (time <= lastStateWrite)
-                            {
-                                time = lastStateWrite.AddTicks(1);
-                            }
-
-                            lastStateWrite = time;
-                            emitter.Post(state, time);
-                        },
-                        DeliveryPolicy.Unlimited)
-                    .Write(LogigramState.StreamName, exporter);
+                gammaPath.StateOut.Write(LogigramState.StreamName, exporter);
                 writer.Out.Write(LogigramOutcome.StreamName, exporter);
 
-                // REPLAY = FullSpeed over GammaPath + Battery-scoped derivation (importer-driven).
-                Exception pipelineError = null;
-                pipeline.PipelineExceptionNotHandled += (_, args) =>
-                {
-                    pipelineError = args.Exception;
-                };
-                try
-                {
-                    pipeline.Run(ReplayDescriptor.ReplayAll);
-                }
-                catch (AggregateException aggregate) when (pipelineError != null || aggregate.InnerExceptions.Count > 0)
-                {
-                    Exception root = pipelineError ?? aggregate.Flatten().InnerException ?? aggregate;
-                    throw new InvalidOperationException(
-                        $"Logic FullSpeed pipeline failed: {root.GetType().Name}: {root.Message}",
-                        root);
-                }
-
-                if (pipelineError != null)
-                {
-                    throw new InvalidOperationException(
-                        $"Logic FullSpeed pipeline failed: {pipelineError.GetType().Name}: {pipelineError.Message}",
-                        pipelineError);
-                }
+                // REPLAY = FullSpeed over GammaPath + Battery-scoped derivation.
+                RunFullSpeed(pipeline);
             }
 
             SaveAnalysisDataset(resolvedOutputPds, storeRoot, inputStorePath);
@@ -260,60 +196,165 @@ namespace Logigram1Analysis
             return importer;
         }
 
+        /// <summary>
+        /// Pass 1: reads every available topic of the union (required first; optional skipped when absent) into
+        /// memory with its store originating time, in arbitrary cross-stream arrival order.
+        /// </summary>
+        private static List<(GammaPathTopicEvent Event, DateTime OriginatingTime)> LoadTopicEvents(
+            Dataset dataset,
+            Func<Dataset, string, IStreamMetadata> lookup,
+            IReadOnlyList<string> requiredTopics,
+            IReadOnlyList<string> optionalTopics)
+        {
+            var arrivals = new List<(GammaPathTopicEvent Event, DateTime OriginatingTime)>();
+            var gate = new object();
+            Action<GammaPathTopicEvent, DateTime> sink = (topicEvent, time) =>
+            {
+                lock (gate)
+                {
+                    arrivals.Add((topicEvent, time));
+                }
+            };
+
+            using (Pipeline loader = Pipeline.Create(nameof(FirstUnitPipelineRunner) + "-Load"))
+            {
+                var importers = new Dictionary<string, PsiImporter>(StringComparer.Ordinal);
+                var attachedTopics = new HashSet<string>(StringComparer.Ordinal);
+
+                foreach (string topic in requiredTopics)
+                {
+                    if (!attachedTopics.Add(topic))
+                    {
+                        continue;
+                    }
+
+                    IStreamMetadata metadata = lookup(dataset, topic);
+                    if (metadata == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Required Logic topic stream missing at run time: {topic}.");
+                    }
+
+                    PsiImporter importer = GetOrOpenImporter(loader, importers, metadata);
+                    AttachTopic(importer, topic, metadata.Name, sink);
+                }
+
+                foreach (string topic in optionalTopics)
+                {
+                    if (!attachedTopics.Add(topic))
+                    {
+                        continue;
+                    }
+
+                    IStreamMetadata metadata = lookup(dataset, topic);
+                    if (metadata == null)
+                    {
+                        continue;
+                    }
+
+                    PsiImporter importer = GetOrOpenImporter(loader, importers, metadata);
+                    AttachTopic(importer, topic, metadata.Name, sink);
+                }
+
+                RunFullSpeed(loader);
+            }
+
+            return arrivals;
+        }
+
+        private static void RunFullSpeed(Pipeline pipeline)
+        {
+            Exception pipelineError = null;
+            pipeline.PipelineExceptionNotHandled += (_, args) =>
+            {
+                pipelineError = args.Exception;
+            };
+            try
+            {
+                pipeline.Run(ReplayDescriptor.ReplayAll);
+            }
+            catch (AggregateException aggregate) when (pipelineError != null || aggregate.InnerExceptions.Count > 0)
+            {
+                Exception root = pipelineError ?? aggregate.Flatten().InnerException ?? aggregate;
+                throw new InvalidOperationException(
+                    $"Logic FullSpeed pipeline failed: {root.GetType().Name}: {root.Message}",
+                    root);
+            }
+
+            if (pipelineError != null)
+            {
+                throw new InvalidOperationException(
+                    $"Logic FullSpeed pipeline failed: {pipelineError.GetType().Name}: {pipelineError.Message}",
+                    pipelineError);
+            }
+        }
+
         private static void AttachTopic(
             PsiImporter importer,
-            Logigram1GammaPathUnit gammaPath,
             string topicName,
-            string streamName)
+            string streamName,
+            Action<GammaPathTopicEvent, DateTime> sink)
         {
             switch (topicName)
             {
                 case "Module status":
-                    importer.OpenStream<ValueTuple<int, string>>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<int, string>>(topicName));
+                    Collect<ValueTuple<int, string>>(importer, topicName, streamName, sink);
                     break;
 
                 case "Porte1 ouverture":
                 case "Porte2 ouverture":
-                    importer.OpenStream<ValueTuple<bool, Vector3>>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<bool, Vector3>>(topicName));
+                    Collect<ValueTuple<bool, Vector3>>(importer, topicName, streamName, sink);
                     break;
 
                 case "M1-SelectModule":
                 case "M2-SelectModule":
-                    importer.OpenStream<string>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<string>(topicName));
+                    Collect<string>(importer, topicName, streamName, sink);
                     break;
 
                 case "M1-Validation":
                 case "M2-Validation":
-                    importer.OpenStream<bool>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<bool>(topicName));
+                    Collect<bool>(importer, topicName, streamName, sink);
                     break;
 
                 case "Area1":
                 case "Area2":
-                    importer.OpenStream<ValueTuple<int, bool, string>>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<int, bool, string>>(topicName));
+                    Collect<ValueTuple<int, bool, string>>(importer, topicName, streamName, sink);
                     break;
 
                 case "ObjectBound":
-                    importer.OpenStream<ValueTuple<string, Vector3, Vector3>>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<ValueTuple<string, Vector3, Vector3>>(topicName));
+                    Collect<ValueTuple<string, Vector3, Vector3>>(importer, topicName, streamName, sink);
                     break;
 
                 case "1-LeftWrist":
                 case "1-RightWrist":
                 case "2-LeftWrist":
                 case "2-RightWrist":
-                    importer.OpenStream<Tuple<Vector3, Vector3>>(streamName)
-                        .PipeTo(gammaPath.AddTopicInput<Tuple<Vector3, Vector3>>(topicName));
+                    // Own the tuple: do not keep a reference into importer-owned message state.
+                    Collect<Tuple<Vector3, Vector3>>(
+                        importer,
+                        topicName,
+                        streamName,
+                        sink,
+                        wrist => Tuple.Create(wrist.Item1, wrist.Item2));
                     break;
 
                 default:
                     throw new InvalidOperationException(
                         $"No catalogue type mapping for Logic topic \"{topicName}\".");
             }
+        }
+
+        private static void Collect<T>(
+            PsiImporter importer,
+            string topicName,
+            string streamName,
+            Action<GammaPathTopicEvent, DateTime> sink,
+            Func<T, object> copy = null)
+        {
+            importer.OpenStream<T>(streamName)
+                .Do((payload, envelope) => sink(
+                    new GammaPathTopicEvent(topicName, copy != null ? copy(payload) : payload),
+                    envelope.OriginatingTime));
         }
 
         private static void SaveAnalysisDataset(
