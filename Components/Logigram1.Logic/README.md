@@ -1,6 +1,6 @@
 # Logigram1.Logic
 
-Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated outcome writer** and the enableable **`Logigram1.GammaPath`** cycle FSM (nodes 1→2→3→C).
+Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated outcome writer**, the enableable **`Logigram1.GammaPath`** cycle FSM (nodes 1→2→3→C), and the additive **`Logigram1.AlphaBetaPath`** unit (Idle scaffold; FSM in later stories).
 
 ## Components
 
@@ -8,6 +8,17 @@ Psi-backed sibling of the contracts project `Logigram1`. Holds the **designated 
 |------|------|
 | `LogigramOutcomeWriter` | Sole producer of `Logigram1.Outcome` when wired (AD-10). N evidence receivers + optional regulation-decision inputs. |
 | `Logigram1GammaPathUnit` | Unit id `Logigram1.GammaPath`. Full Anticipation cycle **per (BatteryId, PersonId)**: node 1 → try node 2 (reset, no Gamma) → else try node 3 → Gamma (C) via the writer. No Alpha/Beta/gaze/speech. |
+| `Logigram1AlphaBetaPathUnit` | Unit id `Logigram1.AlphaBetaPath` (ADD_ON_TOP). Own Idle; posts stamped `ab-idle:` State (BatteryId + PersonId). No Alpha/Beta Outcomes yet; not coupled into GammaPath. |
+
+### AlphaBeta Status prefixes (AB_LABEL)
+
+| Prefix | Node | Notes |
+|--------|------|-------|
+| `ab-idle:` | Idle | Emitted this story (scrub proof). |
+| `ab-gazed:` | Gazed | Viz skeleton; FSM later. |
+| `ab-not-gazed:` | Not-gazed | Viz skeleton; FSM later. |
+
+Do not collide with Gamma `node-1:` / `node-2:` / `node-3:`.
 
 - `RegulationDecisionIn` emits Outcome with default `BatteryId`/`PersonId` (0); `RegulationDecisionWithBatteryIn` stamps `(Regulation, BatteryId, PersonId)` (AD-6).
 - Evidence alone never invents terminals (honest absent / non-terminal).
@@ -51,4 +62,4 @@ Catalogue payload types (Analysis importer map):
 
 ## Analysis console
 
-Wire order: substrate → required Logic topics (`ObjectBound`, LeftWrist, …) → optional RightWrist when present → Battery discovery → (if `Logigram1.GammaPath` enabled) resolve output → importers → unit → Evidence → writer; RegulationDecisionWithBattery → writer → persist `Logigram1.State` / `Logigram1.Outcome` → print path. Empty `EnabledUnits` or legacy-only ids → substrate only (no analysis Dataset). Missing required topics → fail loud (non-zero exit).
+Wire order: substrate → required Logic topics (`ObjectBound`, LeftWrist, …) → optional RightWrist when present → Battery discovery → resolve output when any runnable unit enabled → Gamma runner (if enabled) → AlphaBeta sibling runner (if enabled; merges Idle onto shared State when Gamma already wrote) → print path. Empty `EnabledUnits` or legacy-only ids → substrate only (no analysis Dataset). Missing required topics → fail loud (non-zero exit). AlphaBeta ENTRY_KNOWN_NOW bag: Validation / Module status / SelectModule / Porte (gaze later).

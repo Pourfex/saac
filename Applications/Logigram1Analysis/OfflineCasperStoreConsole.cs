@@ -24,7 +24,9 @@ namespace Logigram1Analysis
     /// When config enables Logic units, also reports AD-7 required topics present or all gaps.
     /// After substrate + Logic-topic checks, discovers Battery Spawn→Finish segments (AD-6) or fails explicitly.
     /// When <c>Logigram1.GammaPath</c> is enabled, runs the cycle FSM and persists analysis State/Outcome.
-    /// Legacy <c>Logigram1.FirstUnit</c> / <c>Logigram1.Node3</c> in EnabledUnits are warned and ignored.
+    /// When <c>Logigram1.AlphaBetaPath</c> is enabled, runs the sibling Idle runner (ADD_ON_TOP; merges onto
+    /// shared State when Gamma also ran). Legacy <c>Logigram1.FirstUnit</c> / <c>Logigram1.Node3</c>
+    /// in EnabledUnits are warned and ignored.
     /// </summary>
     public static class OfflineCasperStoreConsole
     {
@@ -159,7 +161,7 @@ namespace Logigram1Analysis
                     string unitId = rawId?.Trim();
                     if (string.IsNullOrEmpty(unitId)
                         || Logigram1UnitTopicRegistry.IsLegacyIgnoredUnitId(unitId)
-                        || string.Equals(unitId, Logigram1UnitTopicRegistry.GammaPathUnitId, StringComparison.Ordinal))
+                        || Logigram1UnitTopicRegistry.IsRunnableUnitId(unitId))
                     {
                         continue;
                     }
@@ -240,7 +242,10 @@ namespace Logigram1Analysis
                 bool gammaPathEnabled = FirstUnitPipelineRunner.IsUnitEnabled(
                     runnableUnits,
                     Logigram1UnitTopicRegistry.GammaPathUnitId);
-                if (!gammaPathEnabled)
+                bool alphaBetaPathEnabled = FirstUnitPipelineRunner.IsUnitEnabled(
+                    runnableUnits,
+                    Logigram1UnitTopicRegistry.AlphaBetaPathUnitId);
+                if (!gammaPathEnabled && !alphaBetaPathEnabled)
                 {
                     return 0;
                 }
@@ -268,12 +273,25 @@ namespace Logigram1Analysis
 
                 try
                 {
-                    FirstUnitPipelineRunner.RunAndPersist(
-                        pipeline.Dataset,
-                        batterySegments,
-                        resolvedOutput,
-                        fullPath,
-                        runnableUnits);
+                    // ADD_ON_TOP: Gamma runner unchanged; AlphaBeta sibling merges onto shared State when both run.
+                    if (gammaPathEnabled)
+                    {
+                        FirstUnitPipelineRunner.RunAndPersist(
+                            pipeline.Dataset,
+                            batterySegments,
+                            resolvedOutput,
+                            fullPath,
+                            runnableUnits);
+                    }
+
+                    if (alphaBetaPathEnabled)
+                    {
+                        AlphaBetaPathPipelineRunner.RunAndPersist(
+                            batterySegments,
+                            resolvedOutput,
+                            fullPath,
+                            preserveExistingAnalysisStore: gammaPathEnabled);
+                    }
                 }
                 catch (Exception exception)
                 {

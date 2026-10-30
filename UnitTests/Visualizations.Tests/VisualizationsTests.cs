@@ -227,10 +227,92 @@ namespace Visualizations.Tests
         }
 
         [TestMethod]
+        public void LogigramGraph_AlphaBetaSkeleton_HasIdleGazedNotGazedLabels()
+        {
+            Assert.AreEqual("Idle", LogigramGraphVisualizationObject.AlphaBetaIdleLabel);
+            Assert.AreEqual("Gazed", LogigramGraphVisualizationObject.AlphaBetaGazedLabel);
+            Assert.AreEqual("Not-gazed", LogigramGraphVisualizationObject.AlphaBetaNotGazedLabel);
+            Assert.AreEqual("ab-idle:", LogigramGraphVisualizationObject.AlphaBetaIdleStatusPrefix);
+            Assert.AreEqual("ab-gazed:", LogigramGraphVisualizationObject.AlphaBetaGazedStatusPrefix);
+            Assert.AreEqual("ab-not-gazed:", LogigramGraphVisualizationObject.AlphaBetaNotGazedStatusPrefix);
+
+            string csprojDir = Path.GetDirectoryName(FindVisualizationsCsproj());
+            Assert.IsNotNull(csprojDir);
+            string xamlPath = Path.Combine(
+                csprojDir,
+                "src",
+                "Views",
+                "LogigramGraphVisualizationObjectView.xaml");
+            string xaml = File.ReadAllText(xamlPath);
+            StringAssert.Contains(xaml, "IsPerson1IdleHighlighted");
+            StringAssert.Contains(xaml, "IsPerson1GazedHighlighted");
+            StringAssert.Contains(xaml, "IsPerson1NotGazedHighlighted");
+            StringAssert.Contains(xaml, "IsPerson2IdleHighlighted");
+            StringAssert.Contains(xaml, "IsPerson2GazedHighlighted");
+            StringAssert.Contains(xaml, "IsPerson2NotGazedHighlighted");
+            StringAssert.Contains(xaml, "Text=\"Idle\"");
+            StringAssert.Contains(xaml, "Text=\"Gazed\"");
+            StringAssert.Contains(xaml, "Text=\"Not-gazed\"");
+            StringAssert.Contains(xaml, "IsPerson1Node1Highlighted");
+        }
+
+        [TestMethod]
         public void TryParseNodeNumber_ParsesNode1AndNode2Prefixes()
         {
             Assert.AreEqual(1, LogigramGraphVisualizationObject.TryParseNodeNumber("node-1: Module status id=7 (new this Battery)"));
             Assert.AreEqual(2, LogigramGraphVisualizationObject.TryParseNodeNumber("node-2: door-closed + Validation (within 2s; source M1-Validation)"));
+        }
+
+        [TestMethod]
+        public void LogigramGraph_AbIdle_HighlightsIdle_GazedNotGazedUnlit_GammaUnlit()
+        {
+            const int underView = 5;
+            var idle = new LogigramState
+            {
+                Status = "ab-idle: AlphaBetaPath",
+                BatteryId = 5,
+                PersonId = 1,
+            };
+            Assert.IsTrue(
+                LogigramGraphVisualizationObject.IsAlphaBetaNodeHighlighted(
+                    LogigramGraphVisualizationObject.AlphaBetaIdleStatusPrefix,
+                    idle,
+                    underView,
+                    personId: 1));
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.IsAlphaBetaNodeHighlighted(
+                    LogigramGraphVisualizationObject.AlphaBetaGazedStatusPrefix,
+                    idle,
+                    underView,
+                    personId: 1));
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.IsAlphaBetaNodeHighlighted(
+                    LogigramGraphVisualizationObject.AlphaBetaNotGazedStatusPrefix,
+                    idle,
+                    underView,
+                    personId: 1));
+            Assert.IsFalse(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, idle, underView, personId: 1));
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.TryParseAlphaBetaPrefix("node-1: hit", "ab-idle:"));
+        }
+
+        [TestMethod]
+        public void LogigramGraph_NoAbState_AlphaBetaNodesHonestEmpty()
+        {
+            var gamma = new LogigramState { Status = "node-1: hit", BatteryId = 1, PersonId = 1 };
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.IsAlphaBetaNodeHighlighted(
+                    LogigramGraphVisualizationObject.AlphaBetaIdleStatusPrefix,
+                    gamma,
+                    underViewBatteryId: 1,
+                    personId: 1));
+            Assert.IsFalse(
+                LogigramGraphVisualizationObject.IsAlphaBetaNodeHighlighted(
+                    LogigramGraphVisualizationObject.AlphaBetaIdleStatusPrefix,
+                    null,
+                    underViewBatteryId: 1,
+                    personId: 1));
+            Assert.IsTrue(LogigramGraphVisualizationObject.IsPathNodeHighlighted(1, gamma, underViewBatteryId: 1, personId: 1));
         }
 
         [TestMethod]
@@ -423,6 +505,12 @@ namespace Visualizations.Tests
             Assert.IsFalse(visualization.IsPerson2Node1Highlighted);
             Assert.IsFalse(visualization.IsPerson1TerminalCHighlighted);
             Assert.IsFalse(visualization.IsPerson2TerminalCHighlighted);
+            Assert.IsFalse(visualization.IsPerson1IdleHighlighted);
+            Assert.IsFalse(visualization.IsPerson1GazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson1NotGazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson2IdleHighlighted);
+            Assert.IsFalse(visualization.IsPerson2GazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson2NotGazedHighlighted);
         }
 
         [TestMethod]
@@ -505,6 +593,43 @@ namespace Visualizations.Tests
             Assert.IsFalse(visualization.IsPerson1Node1Highlighted);
             Assert.IsTrue(visualization.IsPerson1Node2Highlighted);
             StringAssert.Contains(visualization.Person1DisplayText, "node-2: hit");
+        }
+
+        [TestMethod]
+        public void LogigramGraph_SetCurrentValue_AbIdle_HighlightsIdleInstanceProperties()
+        {
+            var visualization = new LogigramGraphVisualizationObject { BatteryId = 7 };
+            DateTime now = DateTime.UtcNow;
+
+            visualization.SetCurrentValue(
+                new Message<LogigramState>(
+                    new LogigramState { Status = "ab-idle: AlphaBetaPath", BatteryId = 7, PersonId = 1 },
+                    now,
+                    now,
+                    0,
+                    0));
+            visualization.SetCurrentValue(
+                new Message<LogigramState>(
+                    new LogigramState { Status = "ab-idle: AlphaBetaPath", BatteryId = 7, PersonId = 2 },
+                    now,
+                    now,
+                    0,
+                    0));
+
+            Assert.IsTrue(visualization.IsPerson1IdleHighlighted);
+            Assert.IsTrue(visualization.IsPerson2IdleHighlighted);
+            Assert.IsFalse(visualization.IsPerson1GazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson1NotGazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson2GazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson2NotGazedHighlighted);
+            Assert.IsFalse(visualization.IsPerson1Node1Highlighted);
+            Assert.IsFalse(visualization.IsPerson1Node2Highlighted);
+            Assert.IsFalse(visualization.IsPerson1Node3Highlighted);
+            Assert.IsFalse(visualization.IsPerson2Node1Highlighted);
+            Assert.IsFalse(visualization.IsPerson2Node2Highlighted);
+            Assert.IsFalse(visualization.IsPerson2Node3Highlighted);
+            Assert.IsFalse(visualization.IsPerson1TerminalCHighlighted);
+            Assert.IsFalse(visualization.IsPerson2TerminalCHighlighted);
         }
 
         [TestMethod]

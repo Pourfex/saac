@@ -12,13 +12,16 @@ namespace Logigram1Analysis
 
     /// <summary>
     /// Maps enabled Logigram 1 Logic unit ids to AD-7 PSI topic names required as Unity→Psi inputs.
-    /// Sole enableable id is <see cref="GammaPathUnitId"/> (nodes 1→2→3→C). Legacy
-    /// <see cref="LegacyFirstUnitId"/> / <see cref="LegacyNode3UnitId"/> are warn+ignore only.
+    /// Enableable ids: <see cref="GammaPathUnitId"/> and <see cref="AlphaBetaPathUnitId"/> (ADD_ON_TOP).
+    /// Legacy <see cref="LegacyFirstUnitId"/> / <see cref="LegacyNode3UnitId"/> are warn+ignore only.
     /// </summary>
     public static class Logigram1UnitTopicRegistry
     {
         /// <summary>Gamma-path cycle FSM unit id (nodes 1→2→3→C).</summary>
         public const string GammaPathUnitId = "Logigram1.GammaPath";
+
+        /// <summary>Alpha/Beta path unit id (Idle scaffold + later FSM; AB_LABEL Status prefixes).</summary>
+        public const string AlphaBetaPathUnitId = "Logigram1.AlphaBetaPath";
 
         /// <summary>Legacy id (story 3.1); warn and ignore — not enableable.</summary>
         public const string LegacyFirstUnitId = "Logigram1.FirstUnit";
@@ -64,6 +67,22 @@ namespace Logigram1Analysis
             GammaPathRequiredTopics.Concat(GammaPathOptionalTopics).ToArray());
 
         /// <summary>
+        /// ENTRY_KNOWN_NOW required topics for <see cref="AlphaBetaPathUnitId"/> (fail loud if absent).
+        /// Non-gaze entry bag only; gaze topics land in story 4.2.
+        /// Spelling matches PSI_EVENTS_README (Validation / Module status / SelectModule / Porte).
+        /// </summary>
+        public static readonly IReadOnlyList<string> AlphaBetaPathRequiredTopics = Array.AsReadOnly(new[]
+        {
+            "Module status",
+            "Porte1 ouverture",
+            "Porte2 ouverture",
+            "M1-SelectModule",
+            "M2-SelectModule",
+            "M1-Validation",
+            "M2-Validation",
+        });
+
+        /// <summary>
         /// Whether <paramref name="unitId"/> is a deprecated EnabledUnits entry (warn+ignore).
         /// </summary>
         /// <param name="unitId">Raw config unit id.</param>
@@ -80,17 +99,39 @@ namespace Logigram1Analysis
         }
 
         /// <summary>
+        /// Whether <paramref name="unitId"/> is a first-class runnable Logic unit id.
+        /// </summary>
+        /// <param name="unitId">Raw or trimmed unit id.</param>
+        /// <returns>True for GammaPath or AlphaBetaPath.</returns>
+        public static bool IsRunnableUnitId(string unitId)
+        {
+            if (string.IsNullOrEmpty(unitId))
+            {
+                return false;
+            }
+
+            return string.Equals(unitId, GammaPathUnitId, StringComparison.Ordinal)
+                || string.Equals(unitId, AlphaBetaPathUnitId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Looks up required topic names for a single unit id.
         /// Legacy FirstUnit/Node3 ids return false (not independently enableable).
         /// </summary>
         /// <param name="unitId">Enabled unit id from config.</param>
         /// <param name="topics">AD-7 topic strings when known; otherwise null.</param>
-        /// <returns>True when the unit id is the registered Gamma-path unit.</returns>
+        /// <returns>True when the unit id is a registered runnable unit.</returns>
         public static bool TryGetRequiredTopics(string unitId, out IReadOnlyList<string> topics)
         {
             if (string.Equals(unitId, GammaPathUnitId, StringComparison.Ordinal))
             {
                 topics = GammaPathRequiredTopics;
+                return true;
+            }
+
+            if (string.Equals(unitId, AlphaBetaPathUnitId, StringComparison.Ordinal))
+            {
+                topics = AlphaBetaPathRequiredTopics;
                 return true;
             }
 
@@ -194,11 +235,12 @@ namespace Logigram1Analysis
         }
 
         /// <summary>
-        /// Filters <paramref name="enabledUnits"/> to the Gamma-path id only, collecting legacy ids to warn about.
+        /// Filters <paramref name="enabledUnits"/> to runnable GammaPath / AlphaBetaPath ids,
+        /// collecting legacy ids to warn about.
         /// </summary>
         /// <param name="enabledUnits">Raw config EnabledUnits.</param>
         /// <param name="legacyIgnored">Legacy FirstUnit/Node3 ids that were listed (for warn).</param>
-        /// <returns>Units that should actually run (0 or 1× GammaPath).</returns>
+        /// <returns>Units that should actually run (0–2 of GammaPath / AlphaBetaPath).</returns>
         public static IReadOnlyList<string> FilterRunnableUnits(
             IEnumerable<string> enabledUnits,
             out IReadOnlyList<string> legacyIgnored)
@@ -232,8 +274,7 @@ namespace Logigram1Analysis
                     continue;
                 }
 
-                if (string.Equals(unitId, GammaPathUnitId, StringComparison.Ordinal)
-                    && seenRunnable.Add(unitId))
+                if (IsRunnableUnitId(unitId) && seenRunnable.Add(unitId))
                 {
                     runnable.Add(unitId);
                 }

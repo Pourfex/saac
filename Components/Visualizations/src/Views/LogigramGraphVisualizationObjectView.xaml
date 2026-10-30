@@ -6,8 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vv="clr-namespace:Microsoft.Psi.Visualization.Views;assembly=Microsoft.Psi.Visualization.Windows"
     mc:Ignorable="d"
-    d:DesignHeight="280"
-    d:DesignWidth="420">
+    d:DesignHeight="320"
+    d:DesignWidth="720">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -25,11 +25,68 @@
             <TextBlock Text="{Binding DisplayText, Mode=OneWay}" TextWrapping="Wrap" />
         </Border>
 
-        <!-- Person 1 skeleton (yellow highlights) -->
+        <!-- Person 1 skeleton (yellow highlights): Idle | Gazed | Not-gazed | 1→2→3→C -->
         <Border Grid.Row="2" Padding="8,4,8,4">
             <StackPanel>
                 <TextBlock Text="{Binding Person1DisplayText, Mode=OneWay}" Margin="0,0,0,4" Foreground="#555555" />
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+                    <Border Width="64" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1IdleHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Idle" FontSize="12" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border Width="64" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1GazedHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Gazed" FontSize="12" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border Width="72" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,8,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson1NotGazedHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#FFCC00" />
+                                        <Setter Property="BorderBrush" Value="#8B6914" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Not-gazed" FontSize="11" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
                     <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
                             Margin="0,0,4,0">
                         <Border.Style>
@@ -114,11 +171,68 @@
             </StackPanel>
         </Border>
 
-        <!-- Person 2 skeleton (orange highlights) -->
+        <!-- Person 2 skeleton (orange highlights): Idle | Gazed | Not-gazed | 1→2→3→C -->
         <Border Grid.Row="3" Padding="8,4,8,8">
             <StackPanel>
                 <TextBlock Text="{Binding Person2DisplayText, Mode=OneWay}" Margin="0,0,0,4" Foreground="#555555" />
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+                    <Border Width="64" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2IdleHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Idle" FontSize="12" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border Width="64" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2GazedHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Gazed" FontSize="12" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border Width="72" Height="52" CornerRadius="2" BorderThickness="2"
+                            Margin="0,0,8,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#EDEDED" />
+                                <Setter Property="BorderBrush" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPerson2NotGazedHighlighted}" Value="True">
+                                        <Setter Property="Background" Value="#E87A2E" />
+                                        <Setter Property="BorderBrush" Value="#8B4513" />
+                                        <Setter Property="BorderThickness" Value="3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Not-gazed" FontSize="11" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
                     <Border Width="52" Height="52" CornerRadius="2" BorderThickness="2"
                             Margin="0,0,4,0">
                         <Border.Style>

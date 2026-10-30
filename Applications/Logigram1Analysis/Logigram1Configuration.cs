@@ -19,9 +19,14 @@ namespace Logigram1Analysis
     public sealed class Logigram1Configuration
     {
         /// <summary>
-        /// Default enabled unit id shipped in <c>logigram1.json</c> (<c>Logigram1.GammaPath</c>).
+        /// Default Gamma enabled unit id shipped in <c>logigram1.json</c> (<c>Logigram1.GammaPath</c>).
         /// </summary>
         public const string DefaultGammaPathUnitId = Logigram1UnitTopicRegistry.GammaPathUnitId;
+
+        /// <summary>
+        /// Additive Alpha/Beta path unit id shipped beside Gamma (ADD_ON_TOP).
+        /// </summary>
+        public const string DefaultAlphaBetaPathUnitId = Logigram1UnitTopicRegistry.AlphaBetaPathUnitId;
 
         /// <summary>
         /// Gets or sets the absolute or relative path to the Casper Dataset <c>.pds</c> file.
@@ -32,7 +37,7 @@ namespace Logigram1Analysis
         /// <summary>
         /// Gets or sets Logic unit ids whose AD-7 source topics must be present in the store.
         /// Empty or absent → substrate smoke only (no Logic-topic check). Shipped default includes
-        /// <see cref="DefaultGammaPathUnitId"/>.
+        /// <see cref="DefaultGammaPathUnitId"/> and <see cref="DefaultAlphaBetaPathUnitId"/> (ADD_ON_TOP).
         /// </summary>
         [JsonProperty("EnabledUnits")]
         public List<string> EnabledUnits { get; set; }

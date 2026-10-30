@@ -59,6 +59,12 @@
 
 <!-- /bmad:context -->
 
+## Epic 4 AlphaBetaPath (manual — keep across bmad refresh)
+
+- ADD_ON_TOP: develop `logigram1.json` enables `Logigram1.GammaPath` **and** `Logigram1.AlphaBetaPath` (Gamma frozen; AlphaBeta additive).
+- AB_LABEL Status prefixes for scrub: `ab-idle:` / `ab-gazed:` / `ab-not-gazed:` (do not collide with Gamma `node-N:`). Story 4.1 emits Idle only.
+- Same Logigram graph panel shows Idle + Gazed + Not-gazed beside 1→2→3→C; contracts-only viz.
+
 ## Logigram local verify (manual — keep across bmad refresh)
 
 From `saac/`, prefer:

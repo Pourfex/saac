@@ -1419,6 +1419,229 @@ namespace Logigram1Analysis.Tests
                 "Union must be distinct.");
         }
 
+        /// <summary>AlphaBetaPath ENTRY_KNOWN_NOW bag (no gaze); dual-enable filter keeps both ids.</summary>
+        [TestMethod]
+        public void UnitTopicRegistry_AlphaBetaPath_EntryKnownNowAndDualFilter()
+        {
+            Assert.IsTrue(
+                Logigram1UnitTopicRegistry.TryGetRequiredTopics(
+                    Logigram1UnitTopicRegistry.AlphaBetaPathUnitId,
+                    out IReadOnlyList<string> topics));
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "Module status",
+                    "Porte1 ouverture",
+                    "Porte2 ouverture",
+                    "M1-SelectModule",
+                    "M2-SelectModule",
+                    "M1-Validation",
+                    "M2-Validation",
+                },
+                topics.ToList());
+            CollectionAssert.DoesNotContain(topics.ToList(), "Gaze");
+            CollectionAssert.DoesNotContain(topics.ToList(), "ObjectBound");
+
+            IReadOnlyList<string> runnable = Logigram1UnitTopicRegistry.FilterRunnableUnits(
+                new[]
+                {
+                    Logigram1UnitTopicRegistry.GammaPathUnitId,
+                    Logigram1UnitTopicRegistry.AlphaBetaPathUnitId,
+                    Logigram1UnitTopicRegistry.LegacyFirstUnitId,
+                },
+                out IReadOnlyList<string> legacy);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    Logigram1UnitTopicRegistry.GammaPathUnitId,
+                    Logigram1UnitTopicRegistry.AlphaBetaPathUnitId,
+                },
+                runnable.ToList());
+            CollectionAssert.Contains(legacy.ToList(), Logigram1UnitTopicRegistry.LegacyFirstUnitId);
+
+            IReadOnlyList<string> union = Logigram1UnitTopicRegistry.TryResolveTopicUnion(
+                runnable,
+                out string unknown);
+            Assert.IsNull(unknown);
+            CollectionAssert.Contains(union.ToList(), "ObjectBound");
+            CollectionAssert.Contains(union.ToList(), "M1-Validation");
+
+            string shippedConfig = FindShippedLogigram1Json();
+            Logigram1Configuration config = Logigram1Configuration.Load(shippedConfig);
+            CollectionAssert.Contains(
+                config.EnabledUnits,
+                Logigram1Configuration.DefaultGammaPathUnitId);
+            CollectionAssert.Contains(
+                config.EnabledUnits,
+                Logigram1Configuration.DefaultAlphaBetaPathUnitId);
+        }
+
+        /// <summary>AlphaBetaPath alone: posts stamped ab-idle State; no Outcomes.</summary>
+        [TestMethod]
+        public void Run_WithAlphaBetaPath_PersistsAbIdleState()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-ab-idle-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "AbIdle.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.AlphaBetaPathRequiredTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (21, start, start.AddSeconds(10)),
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.AlphaBetaPath\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                string outputPds = Path.Combine(folder, "AbIdle.Logigram1Analysis.pds");
+                Assert.IsTrue(File.Exists(outputPds), stdout.ToString());
+
+                var states = ReadAnalysisStates(outputPds);
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.BatteryId == 21
+                        && state.PersonId == 1
+                        && state.Status != null
+                        && state.Status.StartsWith("ab-idle:", StringComparison.Ordinal)),
+                    "Expected ab-idle: for Person 1.");
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.BatteryId == 21
+                        && state.PersonId == 2
+                        && state.Status != null
+                        && state.Status.StartsWith("ab-idle:", StringComparison.Ordinal)),
+                    "Expected ab-idle: for Person 2.");
+                Assert.IsFalse(
+                    states.Any(state =>
+                        state.Status != null
+                        && state.Status.IndexOf("node-1", StringComparison.Ordinal) >= 0),
+                    "AlphaBeta-only must not emit Gamma node Status.");
+
+                Assert.AreEqual(
+                    0,
+                    ReadAnalysisOutcomesWithTime(outputPds).Count,
+                    "AlphaBetaPath must not emit Outcomes this story.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>ADD_ON_TOP dual enable: Gamma State/Outcome preserved + AlphaBeta ab-idle merged.</summary>
+        [TestMethod]
+        public void Run_WithGammaAndAlphaBeta_PersistsBothOnSharedState()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-dual-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "Dual.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            DateTime start = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                CreatePreTestShapedDataset(
+                    folder,
+                    pds,
+                    fullScreenWithData: true,
+                    area1WithData: false,
+                    logicTopics: Logigram1UnitTopicRegistry.GammaPathTopics,
+                    batterySegments: new List<(int, DateTime, DateTime)>
+                    {
+                        (15, start, start.AddSeconds(10)),
+                    });
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.GammaPath\", \"Logigram1.AlphaBetaPath\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreEqual(0, exit, stderr.ToString());
+                string outputPds = Path.Combine(folder, "Dual.Logigram1Analysis.pds");
+                Assert.IsTrue(File.Exists(outputPds), stdout.ToString());
+
+                var states = ReadAnalysisStates(outputPds);
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.BatteryId == 15
+                        && state.Status != null
+                        && state.Status.IndexOf("node-1", StringComparison.Ordinal) >= 0),
+                    "Expected Gamma node-1 preserved.");
+                Assert.IsTrue(
+                    states.Any(state =>
+                        state.BatteryId == 15
+                        && state.Status != null
+                        && state.Status.StartsWith("ab-idle:", StringComparison.Ordinal)),
+                    "Expected AlphaBeta ab-idle on shared State.");
+
+                var outcomes = ReadAnalysisOutcomes(outputPds);
+                Assert.IsTrue(
+                    outcomes.Any(outcome =>
+                        outcome.Regulation == LogigramRegulation.Gamma && outcome.BatteryId == 15),
+                    "Expected Gamma Outcome preserved after AlphaBeta merge.");
+                Assert.IsFalse(
+                    outcomes.Any(outcome =>
+                        outcome.Regulation == LogigramRegulation.Alpha
+                        || outcome.Regulation == LogigramRegulation.Beta),
+                    "No Alpha/Beta Outcomes this story.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
+        /// <summary>AlphaBetaPath enabled with missing entry topic → explicit gap; exit non-zero.</summary>
+        [TestMethod]
+        public void Run_WithAlphaBetaPathMissingTopics_ListsGapsAndReturnsNonZero()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Logigram1Analysis-ab-gap-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string pds = Path.Combine(folder, "AbGap.pds");
+            string configPath = Path.Combine(folder, "logigram1.json");
+            try
+            {
+                CreatePreTestShapedDataset(folder, pds, fullScreenWithData: true, area1WithData: false);
+
+                File.WriteAllText(
+                    configPath,
+                    "{ \"StorePath\": " + JsonString(pds)
+                    + ", \"EnabledUnits\": [ \"Logigram1.AlphaBetaPath\" ] }");
+
+                var stdout = new StringWriter();
+                var stderr = new StringWriter();
+                int exit = OfflineCasperStoreConsole.Run(new[] { "--config", configPath }, stdout, stderr);
+
+                Assert.AreNotEqual(0, exit, stdout.ToString());
+                StringAssert.Contains(stderr.ToString(), "Required Logic topic missing");
+                Assert.IsFalse(
+                    File.Exists(Path.Combine(folder, "AbGap.Logigram1Analysis.pds")),
+                    "Topic gap must not write an analysis Dataset.");
+            }
+            finally
+            {
+                TryDeleteDirectory(folder);
+            }
+        }
+
         /// <summary>GammaPath: unused 2s window then door+leave → node-3 State + Gamma.</summary>
         [TestMethod]
         public void Run_WithGammaPath_PersistsNode3StateAndGamma()
@@ -2437,6 +2660,39 @@ namespace Logigram1Analysis.Tests
             string fullPath = Path.GetFullPath(inputStorePath);
             string id = Path.GetFileName(fullPath);
             return "path=" + fullPath + " id=" + id;
+        }
+
+        private static string FindShippedLogigram1Json()
+        {
+            string[] relativeCandidates =
+            {
+                Path.Combine("Applications", "Logigram1Analysis", "logigram1.json"),
+                Path.Combine("..", "..", "..", "..", "Applications", "Logigram1Analysis", "logigram1.json"),
+                Path.Combine("..", "..", "..", "..", "..", "Applications", "Logigram1Analysis", "logigram1.json"),
+            };
+
+            foreach (string relative in relativeCandidates)
+            {
+                string candidate = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, relative));
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            for (DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
+                directory != null;
+                directory = directory.Parent)
+            {
+                string candidate = Path.Combine(directory.FullName, "Applications", "Logigram1Analysis", "logigram1.json");
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            Assert.Fail("Could not locate Applications/Logigram1Analysis/logigram1.json.");
+            return null;
         }
 
         private static string JsonString(string value)

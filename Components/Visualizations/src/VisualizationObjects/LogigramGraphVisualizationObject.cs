@@ -19,12 +19,15 @@ namespace SAAC.Visualizations
     using SAAC.Visualizations.Views;
 
     /// <summary>
-    /// Canvas Gamma-path (1→2→3→C) Logigram graph at the playhead for one Battery under view.
+    /// Canvas Logigram graph at the playhead for one Battery under view: Gamma 1→2→3→C plus
+    /// AlphaBeta Idle / Gazed / Not-gazed on the same panel (EXTEND_GRAPH).
     /// ONE_PANEL_TWO_SKELETONS: stacked person-1 (yellow) and person-2 (orange) skeletons.
     /// Primary bind is <see cref="LogigramState"/>; <see cref="LogigramOutcome"/> is a paired cursor value
     /// (auto-subscribed from the same partition when present) that lights terminal C for Gamma only
     /// when Outcome.BatteryId matches <see cref="BatteryId"/> and Outcome.PersonId matches the row.
     /// CURSOR_ONLY / PARSE_STATUS — never invents regulation or accumulates prior nodes.
+    /// AB_LABEL prefixes <c>ab-idle:</c> / <c>ab-gazed:</c> / <c>ab-not-gazed:</c> do not collide with Gamma
+    /// <c>node-N:</c>.
     /// </summary>
     [VisualizationObject("Logigram Graph")]
     [VisualizationPanelType(VisualizationPanelType.Canvas)]
@@ -47,6 +50,24 @@ namespace SAAC.Visualizations
 
         /// <summary>Terminal C label on the Gamma path.</summary>
         public const string TerminalCLabel = "C";
+
+        /// <summary>AlphaBeta Idle skeleton label.</summary>
+        public const string AlphaBetaIdleLabel = "Idle";
+
+        /// <summary>AlphaBeta Gazed skeleton label.</summary>
+        public const string AlphaBetaGazedLabel = "Gazed";
+
+        /// <summary>AlphaBeta Not-gazed skeleton label.</summary>
+        public const string AlphaBetaNotGazedLabel = "Not-gazed";
+
+        /// <summary>Status prefix for Idle (AB_LABEL).</summary>
+        public const string AlphaBetaIdleStatusPrefix = "ab-idle:";
+
+        /// <summary>Status prefix for Gazed (AB_LABEL).</summary>
+        public const string AlphaBetaGazedStatusPrefix = "ab-gazed:";
+
+        /// <summary>Status prefix for Not-gazed (AB_LABEL).</summary>
+        public const string AlphaBetaNotGazedStatusPrefix = "ab-not-gazed:";
 
         /// <summary>Person 1 highlight fill (yellow).</summary>
         public const string Person1HighlightColor = "#FFCC00";
@@ -126,6 +147,24 @@ namespace SAAC.Visualizations
         [IgnoreDataMember]
         public LogigramOutcome? CurrentOutcomePerson2 => this.heldOutcomePerson2;
 
+        /// <summary>Gets a value indicating whether person-1 AlphaBeta Idle is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson1IdleHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaIdleStatusPrefix, this.heldStatePerson1, this.batteryId, personId: 1);
+
+        /// <summary>Gets a value indicating whether person-1 Gazed is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson1GazedHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaGazedStatusPrefix, this.heldStatePerson1, this.batteryId, personId: 1);
+
+        /// <summary>Gets a value indicating whether person-1 Not-gazed is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson1NotGazedHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaNotGazedStatusPrefix, this.heldStatePerson1, this.batteryId, personId: 1);
+
         /// <summary>Gets a value indicating whether person-1 node 1 is highlighted.</summary>
         [Browsable(false)]
         [IgnoreDataMember]
@@ -148,6 +187,24 @@ namespace SAAC.Visualizations
             this.heldOutcomePerson1,
             this.batteryId,
             personId: 1);
+
+        /// <summary>Gets a value indicating whether person-2 AlphaBeta Idle is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson2IdleHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaIdleStatusPrefix, this.heldStatePerson2, this.batteryId, personId: 2);
+
+        /// <summary>Gets a value indicating whether person-2 Gazed is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson2GazedHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaGazedStatusPrefix, this.heldStatePerson2, this.batteryId, personId: 2);
+
+        /// <summary>Gets a value indicating whether person-2 Not-gazed is highlighted.</summary>
+        [Browsable(false)]
+        [IgnoreDataMember]
+        public bool IsPerson2NotGazedHighlighted => IsAlphaBetaNodeHighlighted(
+            AlphaBetaNotGazedStatusPrefix, this.heldStatePerson2, this.batteryId, personId: 2);
 
         /// <summary>Gets a value indicating whether person-2 node 1 is highlighted.</summary>
         [Browsable(false)]
@@ -308,6 +365,22 @@ namespace SAAC.Visualizations
         }
 
         /// <summary>
+        /// Whether <paramref name="status"/> starts with the given AlphaBeta AB_LABEL prefix.
+        /// </summary>
+        /// <param name="status">Status string, or null.</param>
+        /// <param name="prefix">Exact prefix such as <see cref="AlphaBetaIdleStatusPrefix"/>.</param>
+        /// <returns>True when Status begins with the prefix (ordinal).</returns>
+        public static bool TryParseAlphaBetaPrefix(string? status, string prefix)
+        {
+            if (string.IsNullOrEmpty(status) || string.IsNullOrEmpty(prefix))
+            {
+                return false;
+            }
+
+            return status.StartsWith(prefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// CURSOR_ONLY path-node highlight: true only when current Status encodes exactly <paramref name="nodeNumber"/>
         /// and State.BatteryId / PersonId match the under-view panel row.
         /// </summary>
@@ -326,6 +399,25 @@ namespace SAAC.Visualizations
 
             int? parsed = TryParseNodeNumber(state.Status);
             return parsed.HasValue && parsed.Value == nodeNumber;
+        }
+
+        /// <summary>
+        /// CURSOR_ONLY AlphaBeta node highlight from AB_LABEL Status prefix; honest empty otherwise.
+        /// </summary>
+        public static bool IsAlphaBetaNodeHighlighted(
+            string statusPrefix,
+            LogigramState? state,
+            int underViewBatteryId,
+            int personId)
+        {
+            if (state == null
+                || state.BatteryId != underViewBatteryId
+                || state.PersonId != personId)
+            {
+                return false;
+            }
+
+            return TryParseAlphaBetaPrefix(state.Status, statusPrefix);
         }
 
         /// <summary>
@@ -489,10 +581,16 @@ namespace SAAC.Visualizations
             this.RaisePropertyChanged(nameof(this.DisplayText));
             this.RaisePropertyChanged(nameof(this.Person1DisplayText));
             this.RaisePropertyChanged(nameof(this.Person2DisplayText));
+            this.RaisePropertyChanged(nameof(this.IsPerson1IdleHighlighted));
+            this.RaisePropertyChanged(nameof(this.IsPerson1GazedHighlighted));
+            this.RaisePropertyChanged(nameof(this.IsPerson1NotGazedHighlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson1Node1Highlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson1Node2Highlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson1Node3Highlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson1TerminalCHighlighted));
+            this.RaisePropertyChanged(nameof(this.IsPerson2IdleHighlighted));
+            this.RaisePropertyChanged(nameof(this.IsPerson2GazedHighlighted));
+            this.RaisePropertyChanged(nameof(this.IsPerson2NotGazedHighlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson2Node1Highlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson2Node2Highlighted));
             this.RaisePropertyChanged(nameof(this.IsPerson2Node3Highlighted));
