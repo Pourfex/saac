@@ -31,9 +31,14 @@ Useful variants:
 
 # Nudge State/Outcome + gaze hits vs video (+1.5s), rebuild analysis + hits, open
 .\scripts\Run-Logigram1.ps1 -Steps Analysis,GazeHits,Open -ScrubDelaySec 1.5
+
+# Nudge the video instead: delayed copy of VideoRemoteApp/FullScreen into a sibling PostProcess store (+1.5s), open
+.\scripts\Run-Logigram1.ps1 -Steps DelayVideo,Open -VideoDelaySec 1.5
 ```
 
-**Steps** (extend this list as epics grow): `Build`, `Viz`, `Analysis`, `GazeHits`, `Open` (+ `Test` via `-Tests`).
+**Steps** (extend this list as epics grow): `Build`, `Viz`, `Analysis`, `GazeHits`, `DelayVideo`, `Open` (+ `Test` via `-Tests`). `DelayVideo` is opt-in: it is not part of `All` (it copies the video into a sibling PostProcess store without mutating Casper, ~3.6 GB for Casper5).
+
+**VideoDelaySec** (signed seconds, `DelayVideo` only): `Applications/DelayedStreamCopy` reads `VideoRemoteApp/FullScreen` (`Shared<EncodedImage>`) from the Casper store, and writes `Casper5.PostProcess/PostProcess.0000` with the **same stream name (`FullScreen`), payloads and type**, every OriginatingTime = raw + delay (positive = later). Independent of `-ScrubDelaySec` (State/Outcome/GazeHits keep using that). The Casper input store is never modified; re-running replaces the PostProcess output. `Open` adds the `PostProcess` partition to `Casper5.WithLogigram1.pds` beside the original `VideoRemoteApp`; in PsiStudio scrub `PostProcess`/`FullScreen` for the delayed timeline. The tool fails non-zero if the source partition/stream is missing or empty. Direct use: `DelayedStreamCopy.exe --casper <Casper5.pds> [--partition VideoRemoteApp] [--stream FullScreen] [--delay-sec <s>] [--out-root <dir>] [--no-pds]` (one source stream per run).
 
 **ScrubDelaySec** (signed seconds): shifts persisted `Logigram1.State` / `Logigram1.Outcome` and the single `Spike42.GazeHit` stream for video sync. `-GazeDelaySec` is an alias when `-ScrubDelaySec` is left at 0. Re-run Analysis/GazeHits to apply a new delay.
 
@@ -44,6 +49,7 @@ Related tools:
 | `Run-Logigram1.ps1` | Orchestrator |
 | `Open-LogigramPsiStudio.ps1` | Thin wrapper → `-Steps Open` |
 | `Applications/OpenLogigramPsiStudio/` | Builds `Casper5.WithLogigram1.pds` + launches PsiStudio |
+| `Applications/DelayedStreamCopy/` | `DelayVideo`: delayed `PostProcess` copy of `FullScreen` |
 
 ## Setup-DevSymlinks.ps1
 

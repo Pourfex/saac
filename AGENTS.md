@@ -91,7 +91,7 @@ Default steps: **Build → Viz → Analysis → Open**. Stops PsiStudio automati
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `-Steps` | `All` | Pipeline subset. `All` = Build, Viz, Analysis, Open (no Test). Values: `All`, `Build`, `Test`, `Viz`, `Analysis`, `Open` (array OK). |
+| `-Steps` | `All` | Pipeline subset. `All` = Build, Viz, Analysis, GazeHits, Open (no Test, no DelayVideo). Values: `All`, `Build`, `Test`, `Viz`, `Analysis`, `GazeHits`, `DelayVideo`, `Open` (array OK; `DelayVideo` is opt-in, not in `All`). |
 | `-Tests` | off | Opt-in: insert `Test` after `Build`. |
 | `-SkipBuild` / `-SkipViz` / `-SkipAnalysis` / `-SkipOpen` | off | Drop that step from the active list. |
 | `-Configuration` | `Debug` | `dotnet` `-c`. |
@@ -101,5 +101,6 @@ Default steps: **Build → Viz → Analysis → Open**. Stops PsiStudio automati
 | `-PsiStudio` | `..\psi\...\Microsoft.Psi.PsiStudio.exe` (Release net472) | PsiStudio exe. |
 | `-Layout` | `Logigram` | PsiStudio layout name. |
 | `-NoLaunch` | off | Build combined `.pds` but do not start PsiStudio. |
+| `-VideoDelaySec` | `0` | Signed seconds for the opt-in `DelayVideo` step (`Applications/DelayedStreamCopy`): sibling `PostProcess` store with `FullScreen` (same name/payload/type) at OT + delay. Independent of `-ScrubDelaySec`. |
 
 Related: `scripts/Open-LogigramPsiStudio.ps1` → thin wrapper for `-Steps Open`. Combined catalog: `Casper5.WithLogigram1.pds` (via `OpenLogigramPsiStudio`). Additional Assemblies: `build/bin/Components/Visualizations/x64/Debug/net48/Visualizations.dll`.

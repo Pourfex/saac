@@ -19,6 +19,7 @@ namespace OpenLogigramPsiStudio
     {
         private const string AnalysisStoreName = "Logigram1Analysis";
         private const string GazeHitsStoreName = "Spike42GazeHits";
+        private const string PostProcessStoreName = "PostProcess";
         private const string DefaultLayoutName = "Logigram";
 
         private static readonly string DefaultCasperPds =
@@ -32,7 +33,8 @@ namespace OpenLogigramPsiStudio
         /// </summary>
         /// <param name="args">
         /// Optional: --casper &lt;Casper5.pds&gt; --analysis &lt;Casper5.Logigram1Analysis.pds|storeDir&gt;
-        /// --gaze-hits &lt;Casper5.Spike42GazeHits|storeDir&gt; --psi-studio &lt;PsiStudio.exe&gt;
+        /// --gaze-hits &lt;Casper5.Spike42GazeHits|storeDir&gt; --post-process &lt;Casper5.PostProcess|storeDir&gt;
+        /// --psi-studio &lt;PsiStudio.exe&gt;
         /// --layout &lt;name&gt; --no-launch.
         /// </param>
         /// <returns>Process exit code.</returns>
@@ -45,6 +47,8 @@ namespace OpenLogigramPsiStudio
                     ?? Path.Combine(Path.GetDirectoryName(casperPds) ?? ".", "Casper5.Logigram1Analysis.pds");
                 string gazeHitsArg = GetArg(args, "--gaze-hits")
                     ?? Path.Combine(Path.GetDirectoryName(casperPds) ?? ".", "Casper5.Spike42GazeHits");
+                string postProcessArg = GetArg(args, "--post-process")
+                    ?? Path.Combine(Path.GetDirectoryName(casperPds) ?? ".", "Casper5.PostProcess");
                 string psiStudioExe = GetArg(args, "--psi-studio") ?? DefaultPsiStudioExe;
                 string layoutName = GetArg(args, "--layout") ?? DefaultLayoutName;
                 bool noLaunch = args.Any(a => string.Equals(a, "--no-launch", StringComparison.OrdinalIgnoreCase));
@@ -66,6 +70,8 @@ namespace OpenLogigramPsiStudio
 
                 string gazeHitsStoreRoot = ResolveNamedStoreRoot(gazeHitsArg, GazeHitsStoreName);
 
+                string postProcessStoreRoot = ResolveNamedStoreRoot(postProcessArg, PostProcessStoreName);
+
                 string combinedPds = Path.Combine(
                     Path.GetDirectoryName(casperPds) ?? ".",
                     Path.GetFileNameWithoutExtension(casperPds) + ".WithLogigram1.pds");
@@ -76,9 +82,13 @@ namespace OpenLogigramPsiStudio
                     gazeHitsStoreRoot != null
                         ? "GazeHits store:    " + gazeHitsStoreRoot
                         : "GazeHits store:    (none — run Spike42GazeHits / -Steps GazeHits to add scrub streams)");
+                Console.WriteLine(
+                    postProcessStoreRoot != null
+                        ? "PostProcess store: " + postProcessStoreRoot
+                        : "PostProcess store: (none — run DelayedStreamCopy / -Steps DelayVideo to add the delayed video copy)");
                 Console.WriteLine("Combined dataset: " + combinedPds);
 
-                BuildCombinedDataset(casperPds, analysisStoreRoot, gazeHitsStoreRoot, combinedPds);
+                BuildCombinedDataset(casperPds, analysisStoreRoot, gazeHitsStoreRoot, postProcessStoreRoot, combinedPds);
                 EnsureLayoutSelected(layoutName);
 
                 if (noLaunch)
@@ -120,6 +130,7 @@ namespace OpenLogigramPsiStudio
             string casperPds,
             string analysisStoreRoot,
             string gazeHitsStoreRoot,
+            string postProcessStoreRoot,
             string combinedPds)
         {
             Dataset casper = Dataset.Load(casperPds);
@@ -153,6 +164,19 @@ namespace OpenLogigramPsiStudio
                     .GetResult();
             }
 
+            // PostProcess = delayed copy of VideoRemoteApp/FullScreen (same stream name); the original partition stays.
+            bool postProcessPresent = session.Partitions != null
+                && session.Partitions.Any(p =>
+                    string.Equals(p.Name, PostProcessStoreName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(p.StoreName, PostProcessStoreName, StringComparison.OrdinalIgnoreCase));
+
+            if (postProcessStoreRoot != null && !postProcessPresent)
+            {
+                session.AddPartitionFromPsiStoreAsync(PostProcessStoreName, postProcessStoreRoot, PostProcessStoreName)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
             casper.Name = Path.GetFileNameWithoutExtension(combinedPds);
             casper.SaveAs(combinedPds);
             Console.WriteLine(
@@ -165,6 +189,14 @@ namespace OpenLogigramPsiStudio
                     gazePresent
                         ? "Spike42GazeHits partition already present."
                         : "Added Spike42GazeHits partition (Spike42.GazeHit).");
+            }
+
+            if (postProcessStoreRoot != null)
+            {
+                Console.WriteLine(
+                    postProcessPresent
+                        ? "PostProcess partition already present."
+                        : "Added PostProcess partition (delayed FullScreen beside original VideoRemoteApp).");
             }
         }
 

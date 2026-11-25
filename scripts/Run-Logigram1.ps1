@@ -27,11 +27,15 @@
 .EXAMPLE
   # Nudge State/Outcome + gaze-hit timelines vs video (+1.5s), rebuild + reopen
   .\scripts\Run-Logigram1.ps1 -Steps Analysis,GazeHits,Open -ScrubDelaySec 1.5
+
+.EXAMPLE
+  # Delayed copy of VideoRemoteApp/FullScreen into a sibling PostProcess store (+1.5s), then reopen
+  .\scripts\Run-Logigram1.ps1 -Steps DelayVideo,Open -VideoDelaySec 1.5
 #>
 [CmdletBinding()]
 param(
     # Pipeline steps. Use All (default) or a subset.
-    [ValidateSet('All', 'Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'Open')]
+    [ValidateSet('All', 'Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'DelayVideo', 'Open')]
     [string[]]$Steps = @('All'),
 
     [string]$Configuration = 'Debug',
@@ -47,6 +51,10 @@ param(
 
     # Alias for -ScrubDelaySec (kept for the GazeHits-only workflow).
     [double]$GazeDelaySec = 0,
+
+    # Signed seconds added to the PostProcess copy of VideoRemoteApp/FullScreen (DelayVideo step only).
+    # Independent of -ScrubDelaySec; positive = video later on the timeline. DelayVideo is opt-in (not in All).
+    [double]$VideoDelaySec = 0,
 
     # Opt-in: run unit tests after Build (not part of default All).
     [switch]$Tests,
@@ -116,7 +124,7 @@ function Stop-PsiStudioIfRunning {
 }
 
 # Resolve step list (default All = no tests; -Tests or -Steps Test adds them)
-$order = @('Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'Open')
+$order = @('Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'DelayVideo', 'Open')
 if ($Steps -contains 'All') {
     $active = [System.Collections.Generic.List[string]]@('Build', 'Viz', 'Analysis', 'GazeHits', 'Open')
 } else {
@@ -142,6 +150,9 @@ $devRoot = Split-Path $saacRoot -Parent
 $spikeDumpDir = Join-Path $devRoot 'Ressources\_analysis-out\_tmp-dump'
 $gazeHitsOutRoot = Join-Path (Split-Path $CasperPds -Parent) (
     [IO.Path]::GetFileNameWithoutExtension($CasperPds) + '.Spike42GazeHits')
+$postProcessOutRoot = Join-Path (Split-Path $CasperPds -Parent) (
+    [IO.Path]::GetFileNameWithoutExtension($CasperPds) + '.PostProcess')
+$videoDelayInvariant = $VideoDelaySec.ToString([cultureinfo]::InvariantCulture)
 $casperServerPath = Join-Path (Split-Path $CasperPds -Parent) 'PreTest.081'
 
 # One scrub offset for State/Outcome + GazeHits (-GazeDelaySec is an alias when ScrubDelaySec left at 0).
@@ -191,6 +202,10 @@ foreach ($step in $order) {
                 'build', 'Applications\OpenLogigramPsiStudio\OpenLogigramPsiStudio.csproj',
                 '-c', $Configuration, '-p:Platform=x64'
             )
+            Invoke-DotNet @(
+                'build', 'Applications\DelayedStreamCopy\DelayedStreamCopy.csproj',
+                '-c', $Configuration, '-p:Platform=x64'
+            )
         }
 
         'Test' {
@@ -205,6 +220,10 @@ foreach ($step in $order) {
             )
             Invoke-DotNet @(
                 'test', 'UnitTests\Logigram1.Tests\Logigram1.Tests.csproj',
+                '-c', $Configuration, '-p:Platform=x64', '--no-restore'
+            )
+            Invoke-DotNet @(
+                'test', 'UnitTests\DelayedStreamCopy.Tests\DelayedStreamCopy.Tests.csproj',
                 '-c', $Configuration, '-p:Platform=x64', '--no-restore'
             )
             try {
@@ -273,8 +292,28 @@ foreach ($step in $order) {
             }
         }
 
+        'DelayVideo' {
+            Write-Step 'DelayVideo (VideoRemoteApp/FullScreen -> sibling PostProcess store, OT = raw + VideoDelaySec)'
+            Invoke-DotNet @(
+                'build', 'Applications\DelayedStreamCopy\DelayedStreamCopy.csproj',
+                '-c', $Configuration, '-p:Platform=x64'
+            )
+            $delayExe = Find-BuiltExe 'DelayedStreamCopy'
+            Write-Host "Exe: $delayExe"
+            Write-Host "Casper: $CasperPds (input, never modified)"
+            Write-Host "Out: $postProcessOutRoot (store PostProcess)"
+            Write-Host "VideoDelaySec: $videoDelayInvariant (PostProcess/FullScreen OT = raw + delay)"
+            & $delayExe `
+                '--casper' $CasperPds `
+                '--out-root' $postProcessOutRoot `
+                '--delay-sec' $videoDelayInvariant
+            if ($LASTEXITCODE -ne 0) {
+                throw "DelayedStreamCopy exited $LASTEXITCODE"
+            }
+        }
+
         'Open' {
-            Write-Step 'Open (combined Casper + analysis [+ GazeHits] Dataset -> PsiStudio / Logigram layout)'
+            Write-Step 'Open (combined Casper + analysis [+ GazeHits] [+ PostProcess] Dataset -> PsiStudio / Logigram layout)'
             $launcher = Find-BuiltExe 'OpenLogigramPsiStudio'
             # Ensure launcher is current even if Build was skipped
             if (-not ($active -contains 'Build')) {
@@ -288,7 +327,8 @@ foreach ($step in $order) {
                 '--casper', $CasperPds,
                 '--psi-studio', $PsiStudio,
                 '--layout', $Layout,
-                '--gaze-hits', $gazeHitsOutRoot
+                '--gaze-hits', $gazeHitsOutRoot,
+                '--post-process', $postProcessOutRoot
             )
             if ($NoLaunch) { $argList += '--no-launch' }
             & $launcher @argList
