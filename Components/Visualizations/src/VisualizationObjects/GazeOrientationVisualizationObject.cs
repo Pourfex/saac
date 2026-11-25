@@ -265,25 +265,55 @@ namespace SAAC.Visualizations
         {
             base.OnStreamBound();
             this.ApplyColorsForStreamName(this.SourceStreamName);
-            this.EnsureObjectBoundsLoaded();
-            this.ScheduleObjectBoundsRetry();
+            if (IsGazeHeadOrientationStream(this.SourceStreamName))
+            {
+                this.EnsureObjectBoundsLoaded();
+                this.ScheduleObjectBoundsRetry();
+            }
+            else
+            {
+                this.SetHitLabel(string.Empty);
+                this.statusBillboard.Text =
+                    "Gaze Orientation: bind 1-GazeHeadOrientation or 2-GazeHeadOrientation (not Eye/Wrist)";
+            }
+
+            this.UpdateVisibility();
+        }
+
+        /// <summary>
+        /// True only for <c>1-GazeHeadOrientation</c> / <c>2-GazeHeadOrientation</c> (and bare
+        /// <c>GazeHeadOrientation</c>). Eye / wrist / head pose streams share the same CLR type but must not raycast.
+        /// </summary>
+        /// <param name="streamName">Bound stream name.</param>
+        /// <returns>Whether this visualizer should draw a gaze ray.</returns>
+        internal static bool IsGazeHeadOrientationStream(string? streamName)
+        {
+            if (string.IsNullOrEmpty(streamName))
+            {
+                return false;
+            }
+
+            // Accept "GazeHeadOrientation", "1-GazeHeadOrientation", "2-GazeHeadOrientation" (case-insensitive).
+            // Reject "1-EyeLeft", "1-EyeRight", "1-LeftWrist", "1-RightWrist", "1-Head", etc.
+            return streamName.Equals("GazeHeadOrientation", StringComparison.OrdinalIgnoreCase)
+                || streamName.EndsWith("-GazeHeadOrientation", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
         /// Person 1 → yellow ray / orange highlight; person 2 → red ray / black highlight.
+        /// Only applies to GazeHeadOrientation streams (not Eye/Wrist).
         /// </summary>
         private void ApplyColorsForStreamName(string? streamName)
         {
-            if (string.IsNullOrEmpty(streamName))
+            if (!IsGazeHeadOrientationStream(streamName))
             {
                 return;
             }
 
-            // Prefer explicit 1-/2-GazeHeadOrientation, then any stream starting with 1- / 2-.
-            bool person2 = streamName.IndexOf("2-Gaze", StringComparison.OrdinalIgnoreCase) >= 0
-                || streamName.StartsWith("2-", StringComparison.Ordinal);
-            bool person1 = streamName.IndexOf("1-Gaze", StringComparison.OrdinalIgnoreCase) >= 0
-                || streamName.StartsWith("1-", StringComparison.Ordinal);
+            bool person2 = streamName.StartsWith("2-", StringComparison.OrdinalIgnoreCase)
+                || streamName.IndexOf("2-GazeHeadOrientation", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool person1 = streamName.StartsWith("1-", StringComparison.OrdinalIgnoreCase)
+                || streamName.IndexOf("1-GazeHeadOrientation", StringComparison.OrdinalIgnoreCase) >= 0;
 
             if (person2)
             {
@@ -365,6 +395,15 @@ namespace SAAC.Visualizations
 
         private void UpdateGazeVisuals()
         {
+            if (!IsGazeHeadOrientationStream(this.SourceStreamName))
+            {
+                // Same Tuple<Vector3,Vector3> type as Eye/Wrist/Head — refuse raycast for those streams.
+                this.SetHitLabel(string.Empty);
+                this.statusBillboard.Text =
+                    "Gaze Orientation: bind 1-GazeHeadOrientation or 2-GazeHeadOrientation (not Eye/Wrist)";
+                return;
+            }
+
             if (!this.HasCurrentValue || this.CurrentData == null)
             {
                 this.SetHitLabel(string.Empty);
@@ -602,12 +641,15 @@ namespace SAAC.Visualizations
 
         private void UpdateVisibility()
         {
-            bool show = this.Visible && this.HasCurrentValue && this.CurrentData != null;
-            this.UpdateChildVisibility(this.rayArrow, show);
-            this.UpdateChildVisibility(this.originMarker, show);
-            this.UpdateChildVisibility(this.statusBillboard, show);
+            bool isGazeStream = IsGazeHeadOrientationStream(this.SourceStreamName);
+            // Billboard stays visible on wrong streams so the refuse message is readable.
+            bool showStatus = this.Visible && (!isGazeStream || (this.HasCurrentValue && this.CurrentData != null));
+            bool showRay = this.Visible && isGazeStream && this.HasCurrentValue && this.CurrentData != null;
+            this.UpdateChildVisibility(this.rayArrow, showRay);
+            this.UpdateChildVisibility(this.originMarker, showRay);
+            this.UpdateChildVisibility(this.statusBillboard, showStatus);
 
-            bool showHit = show && !string.IsNullOrEmpty(this.hitLabel);
+            bool showHit = showRay && !string.IsNullOrEmpty(this.hitLabel);
             this.UpdateChildVisibility(this.hitMarker, showHit);
             this.UpdateChildVisibility(this.nearestHitBox.ModelVisual3D, showHit && this.HighlightHits);
         }
