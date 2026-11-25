@@ -665,20 +665,21 @@ namespace SAAC.Visualizations
                 : new Vector3(Math.Abs(size.X), Math.Abs(size.Y), Math.Abs(size.Z));
 
         /// <summary>
-        /// Unity-style Euler degrees → forward (story 4.2 / Spike42).
+        /// Unity Euler degrees → look direction for Meta/avatar head bone (local +Y).
+        /// Matches CollaborationIndices HeadForwardAxis "+Y (avatar)" / q * Vector3.UnitY.
         /// </summary>
         /// <param name="eulerDeg">Euler degrees (pitch, yaw, roll).</param>
-        /// <returns>Unit forward vector in store/Unity space.</returns>
+        /// <returns>Unit look vector in store/Unity space.</returns>
         internal static Vector3 EulerDegreesToForward(Vector3 eulerDeg)
         {
-            double x = eulerDeg.X * Math.PI / 180.0;
-            double y = eulerDeg.Y * Math.PI / 180.0;
-            float fx = (float)(Math.Sin(y) * Math.Cos(x));
-            float fy = (float)(-Math.Sin(x));
-            float fz = (float)(Math.Cos(y) * Math.Cos(x));
-            var f = new Vector3(fx, fy, fz);
+            const float Deg2Rad = (float)(Math.PI / 180.0);
+            System.Numerics.Quaternion q = System.Numerics.Quaternion.CreateFromYawPitchRoll(
+                eulerDeg.Y * Deg2Rad,
+                eulerDeg.X * Deg2Rad,
+                eulerDeg.Z * Deg2Rad);
+            Vector3 f = Vector3.Transform(Vector3.UnitY, q);
             float len = f.Length();
-            return len < 1e-8f ? Vector3.UnitZ : f / len;
+            return len < 1e-8f ? Vector3.UnitY : f / len;
         }
 
         /// <summary>
