@@ -38,12 +38,17 @@ namespace Logigram1Analysis
         /// <param name="preserveExistingAnalysisStore">
         /// True when Gamma already persisted into the same store root; merge Idle onto shared State.
         /// </param>
+        /// <param name="scrubDelaySec">
+        /// Signed seconds for Idle State OTs. When preserving, Gamma State/Outcome are already delayed;
+        /// only new Idle messages are shifted here.
+        /// </param>
         /// <exception cref="InvalidOperationException">Persist failure.</exception>
         public static void RunAndPersist(
             IReadOnlyList<BatterySegment> batterySegments,
             string resolvedOutputPds,
             string inputStorePath,
-            bool preserveExistingAnalysisStore)
+            bool preserveExistingAnalysisStore,
+            double scrubDelaySec = 0)
         {
             if (string.IsNullOrWhiteSpace(resolvedOutputPds))
             {
@@ -107,21 +112,14 @@ namespace Logigram1Analysis
                 }
             }
 
+            // Existing Gamma messages are already scrub-shifted when preserve=true; shift only new Idle.
+            var shiftedIdle = ScrubTimeShift.ApplyAndOrder(idleStates, scrubDelaySec);
             var mergedStates = new List<(LogigramState State, DateTime OriginatingTime)>();
             mergedStates.AddRange(existingStates);
-            mergedStates.AddRange(idleStates);
-            mergedStates.Sort((a, b) => a.OriginatingTime.CompareTo(b.OriginatingTime));
+            mergedStates.AddRange(shiftedIdle);
+            mergedStates = ScrubTimeShift.ApplyAndOrder(mergedStates, scrubDelaySec: 0);
 
-            // Bump colliding OTs so Psi Write accepts a strictly increasing State stream.
-            for (int i = 1; i < mergedStates.Count; i++)
-            {
-                if (mergedStates[i].OriginatingTime <= mergedStates[i - 1].OriginatingTime)
-                {
-                    mergedStates[i] = (
-                        mergedStates[i].State,
-                        mergedStates[i - 1].OriginatingTime.AddTicks(1));
-                }
-            }
+            var shiftedOutcomes = ScrubTimeShift.ApplyAndOrder(existingOutcomes, scrubDelaySec: 0);
 
             string stagingRoot = storeRoot + ".staging-" + Guid.NewGuid().ToString("N");
             try
@@ -138,21 +136,9 @@ namespace Logigram1Analysis
                             .Write(LogigramState.StreamName, exporter);
                     }
 
-                    if (existingOutcomes.Count > 0)
+                    if (shiftedOutcomes.Count > 0)
                     {
-                        var outcomes = new List<(LogigramOutcome Outcome, DateTime OriginatingTime)>(existingOutcomes);
-                        outcomes.Sort((a, b) => a.OriginatingTime.CompareTo(b.OriginatingTime));
-                        for (int i = 1; i < outcomes.Count; i++)
-                        {
-                            if (outcomes[i].OriginatingTime <= outcomes[i - 1].OriginatingTime)
-                            {
-                                outcomes[i] = (
-                                    outcomes[i].Outcome,
-                                    outcomes[i - 1].OriginatingTime.AddTicks(1));
-                            }
-                        }
-
-                        Generators.Sequence(pipeline, outcomes)
+                        Generators.Sequence(pipeline, shiftedOutcomes)
                             .Write(LogigramOutcome.StreamName, exporter);
                     }
 

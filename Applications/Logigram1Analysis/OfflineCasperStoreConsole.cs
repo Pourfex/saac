@@ -33,7 +33,8 @@ namespace Logigram1Analysis
         /// <summary>
         /// Usage line printed when neither <c>--config</c> nor <c>--store</c> is supplied (or args are invalid).
         /// </summary>
-        public const string Usage = "Usage: Logigram1Analysis --config <file.json> [--store <path.pds>] | --store <path.pds>";
+        public const string Usage =
+            "Usage: Logigram1Analysis --config <file.json> [--store <path.pds>] [--scrub-delay-sec <sec>] | --store <path.pds> [--scrub-delay-sec <sec>]";
 
         /// <summary>
         /// Required partition/stream pairs matching PreTest.081 in PsiStudio.
@@ -72,9 +73,10 @@ namespace Logigram1Analysis
             string storePath;
             IReadOnlyList<string> enabledUnits;
             string outputPathOverride;
+            double scrubDelaySec;
             try
             {
-                ResolveRunInputs(args, out storePath, out enabledUnits, out outputPathOverride);
+                ResolveRunInputs(args, out storePath, out enabledUnits, out outputPathOverride, out scrubDelaySec);
             }
             catch (ArgumentException exception)
             {
@@ -271,6 +273,12 @@ namespace Logigram1Analysis
                     return 1;
                 }
 
+                if (scrubDelaySec != 0.0)
+                {
+                    stdout.WriteLine(
+                        $"ScrubDelaySec={scrubDelaySec.ToString(System.Globalization.CultureInfo.InvariantCulture)} (State/Outcome OT shift for video sync)");
+                }
+
                 try
                 {
                     // ADD_ON_TOP: Gamma runner unchanged; AlphaBeta sibling merges onto shared State when both run.
@@ -281,7 +289,8 @@ namespace Logigram1Analysis
                             batterySegments,
                             resolvedOutput,
                             fullPath,
-                            runnableUnits);
+                            runnableUnits,
+                            scrubDelaySec: scrubDelaySec);
                     }
 
                     if (alphaBetaPathEnabled)
@@ -290,7 +299,8 @@ namespace Logigram1Analysis
                             batterySegments,
                             resolvedOutput,
                             fullPath,
-                            preserveExistingAnalysisStore: gammaPathEnabled);
+                            preserveExistingAnalysisStore: gammaPathEnabled,
+                            scrubDelaySec: scrubDelaySec);
                     }
                 }
                 catch (Exception exception)
@@ -322,25 +332,28 @@ namespace Logigram1Analysis
         /// <returns>The unresolved store path string (may not exist yet).</returns>
         public static string ResolveStorePath(string[] args)
         {
-            ResolveRunInputs(args, out string storePath, out _, out _);
+            ResolveRunInputs(args, out string storePath, out _, out _, out _);
             return storePath;
         }
 
         /// <summary>
-        /// Resolves store path, enabled Logic unit ids, and optional output path from CLI args.
-        /// <c>--store</c> wins for the path; <c>EnabledUnits</c> / <c>OutputPath</c> come from <c>--config</c>
-        /// when present (even if <c>--store</c> overrides <c>StorePath</c>).
-        /// No config → empty enabled list (substrate only) and null output override.
+        /// Resolves store path, enabled Logic unit ids, optional output path, and scrub delay from CLI args.
+        /// <c>--store</c> wins for the path; <c>EnabledUnits</c> / <c>OutputPath</c> / <c>ScrubDelaySec</c>
+        /// come from <c>--config</c> when present (even if <c>--store</c> overrides <c>StorePath</c>).
+        /// <c>--scrub-delay-sec</c> overrides config when present.
+        /// No config → empty enabled list (substrate only), null output override, scrub delay 0.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <param name="storePath">Unresolved store path (may not exist yet).</param>
         /// <param name="enabledUnits">Unit ids for Logic-topic checks (never null).</param>
         /// <param name="outputPathOverride">Config <c>OutputPath</c> when set; otherwise null.</param>
+        /// <param name="scrubDelaySec">Signed State/Outcome OT shift in seconds.</param>
         public static void ResolveRunInputs(
             string[] args,
             out string storePath,
             out IReadOnlyList<string> enabledUnits,
-            out string outputPathOverride)
+            out string outputPathOverride,
+            out double scrubDelaySec)
         {
             if (args == null || args.Length == 0)
             {
@@ -349,6 +362,7 @@ namespace Logigram1Analysis
 
             string storeFlag = TryGetNamedArgument(args, "--store");
             string configFlag = TryGetNamedArgument(args, "--config");
+            string scrubDelayFlag = TryGetNamedArgument(args, "--scrub-delay-sec");
 
             Logigram1Configuration configuration = null;
             if (configFlag != null)
@@ -365,6 +379,20 @@ namespace Logigram1Analysis
                 ? (IReadOnlyList<string>)configuration.EnabledUnits
                 : Array.Empty<string>();
             outputPathOverride = configuration?.OutputPath;
+            scrubDelaySec = configuration?.ScrubDelaySec ?? 0.0;
+
+            if (scrubDelayFlag != null)
+            {
+                if (string.IsNullOrWhiteSpace(scrubDelayFlag)
+                    || !double.TryParse(
+                        scrubDelayFlag,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out scrubDelaySec))
+                {
+                    throw new ArgumentException("Missing or invalid value for --scrub-delay-sec <seconds>.");
+                }
+            }
 
             if (storeFlag != null)
             {

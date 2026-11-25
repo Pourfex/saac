@@ -98,8 +98,8 @@ namespace SAAC.Visualizations
         [DataMember]
         [PropertyOrder(4)]
         [DisplayName("ReverseYZ")]
-        [Description("Reverse Y & Z axes.")]
-        public bool ReverseYZ { get; set; }
+        [Description("Reverse Y & Z axes (default on for Unity Casper stores).")]
+        public bool ReverseYZ { get; set; } = true;
 
         /// <inheritdoc/>
         public override void UpdateVisual3D()

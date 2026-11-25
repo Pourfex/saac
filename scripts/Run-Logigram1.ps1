@@ -4,8 +4,8 @@
 
 .DESCRIPTION
   Extensible step pipeline under saac/scripts. Default runs everything needed to scrub
-  Casper5 video + Logigram State/Outcome in PsiStudio with the Logigram layout.
-  Unit tests are opt-in via -Tests.
+  Casper5 video + Logigram State/Outcome (+ Spike42 Generateur gaze-hit streams) in PsiStudio
+  with the Logigram layout. Unit tests are opt-in via -Tests.
 
   Add new steps in the script's $StepOrder / switch as stories grow (graph viz, node 3, CSV, ...).
 
@@ -23,11 +23,15 @@
 .EXAMPLE
   # Recompute analysis + reopen (no rebuild)
   .\scripts\Run-Logigram1.ps1 -Steps Analysis,Open
+
+.EXAMPLE
+  # Nudge State/Outcome + gaze-hit timelines vs video (+1.5s), rebuild + reopen
+  .\scripts\Run-Logigram1.ps1 -Steps Analysis,GazeHits,Open -ScrubDelaySec 1.5
 #>
 [CmdletBinding()]
 param(
     # Pipeline steps. Use All (default) or a subset.
-    [ValidateSet('All', 'Build', 'Test', 'Viz', 'Analysis', 'Open')]
+    [ValidateSet('All', 'Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'Open')]
     [string[]]$Steps = @('All'),
 
     [string]$Configuration = 'Debug',
@@ -38,6 +42,12 @@ param(
     [string]$PsiStudio = 'C:\Users\alexi\Documents\Dev\psi\Sources\Tools\PsiStudio\Microsoft.Psi.PsiStudio\bin\Release\net472\Microsoft.Psi.PsiStudio.exe',
     [string]$Layout = 'Logigram',
 
+    # Signed seconds added to Logigram1.State / Logigram1.Outcome and Spike42.GazeHit OTs (video sync).
+    [double]$ScrubDelaySec = 0,
+
+    # Alias for -ScrubDelaySec (kept for the GazeHits-only workflow).
+    [double]$GazeDelaySec = 0,
+
     # Opt-in: run unit tests after Build (not part of default All).
     [switch]$Tests,
 
@@ -45,6 +55,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipViz,
     [switch]$SkipAnalysis,
+    [switch]$SkipGazeHits,
     [switch]$SkipOpen,
 
     [switch]$NoLaunch
@@ -105,9 +116,9 @@ function Stop-PsiStudioIfRunning {
 }
 
 # Resolve step list (default All = no tests; -Tests or -Steps Test adds them)
-$order = @('Build', 'Test', 'Viz', 'Analysis', 'Open')
+$order = @('Build', 'Test', 'Viz', 'Analysis', 'GazeHits', 'Open')
 if ($Steps -contains 'All') {
-    $active = [System.Collections.Generic.List[string]]@('Build', 'Viz', 'Analysis', 'Open')
+    $active = [System.Collections.Generic.List[string]]@('Build', 'Viz', 'Analysis', 'GazeHits', 'Open')
 } else {
     $active = [System.Collections.Generic.List[string]]@($Steps | Select-Object -Unique)
 }
@@ -124,7 +135,24 @@ if ($Tests -and -not ($active -contains 'Test')) {
 if ($SkipBuild) { [void]$active.Remove('Build') }
 if ($SkipViz) { [void]$active.Remove('Viz') }
 if ($SkipAnalysis) { [void]$active.Remove('Analysis') }
+if ($SkipGazeHits) { [void]$active.Remove('GazeHits') }
 if ($SkipOpen) { [void]$active.Remove('Open') }
+
+$devRoot = Split-Path $saacRoot -Parent
+$spikeDumpDir = Join-Path $devRoot 'Ressources\_analysis-out\_tmp-dump'
+$gazeHitsOutRoot = Join-Path (Split-Path $CasperPds -Parent) (
+    [IO.Path]::GetFileNameWithoutExtension($CasperPds) + '.Spike42GazeHits')
+$casperServerPath = Join-Path (Split-Path $CasperPds -Parent) 'PreTest.081'
+
+# One scrub offset for State/Outcome + GazeHits (-GazeDelaySec is an alias when ScrubDelaySec left at 0).
+$effectiveScrubDelaySec = $ScrubDelaySec
+if ($GazeDelaySec -ne 0 -and $ScrubDelaySec -eq 0) {
+    $effectiveScrubDelaySec = $GazeDelaySec
+}
+elseif ($GazeDelaySec -ne 0 -and $ScrubDelaySec -ne 0 -and $GazeDelaySec -ne $ScrubDelaySec) {
+    Write-Warning "Both -ScrubDelaySec ($ScrubDelaySec) and -GazeDelaySec ($GazeDelaySec) set; using ScrubDelaySec."
+}
+$scrubDelayInvariant = $effectiveScrubDelaySec.ToString([cultureinfo]::InvariantCulture)
 
 if ($active.Count -eq 0) {
     throw "No steps left to run. Check -Steps / -Skip* flags."
@@ -207,14 +235,46 @@ foreach ($step in $order) {
             $analysisExe = Find-BuiltExe 'Logigram1Analysis'
             Write-Host "Exe: $analysisExe"
             Write-Host "Config: $Logigram1Config"
-            & $analysisExe '--config' $Logigram1Config
+            Write-Host "ScrubDelaySec: $scrubDelayInvariant (State/Outcome OT shift)"
+            & $analysisExe '--config' $Logigram1Config '--scrub-delay-sec' $scrubDelayInvariant
             if ($LASTEXITCODE -ne 0) {
                 throw "Logigram1Analysis exited $LASTEXITCODE"
             }
         }
 
+        'GazeHits' {
+            Write-Step 'GazeHits (Spike42 sphere-raycast Generateur hits -> scrub streams)'
+            $csproj = Join-Path $spikeDumpDir 'Spike42GazeHits.csproj'
+            if (-not (Test-Path $csproj)) {
+                throw "Spike42GazeHits.csproj not found: $csproj"
+            }
+            if (-not (Test-Path $casperServerPath)) {
+                throw "Casper Server store path not found: $casperServerPath (expected PreTest.081 next to Casper5.pds)"
+            }
+            Invoke-DotNet @(
+                'build', $csproj,
+                '-c', 'Release'
+            )
+            $gazeExe = Join-Path $spikeDumpDir 'bin\Release\net48\Spike42GazeHits.exe'
+            if (-not (Test-Path $gazeExe)) {
+                throw "Spike42GazeHits.exe not found after build: $gazeExe"
+            }
+            Write-Host "Exe: $gazeExe"
+            Write-Host "Server: $casperServerPath"
+            Write-Host "Out: $gazeHitsOutRoot"
+            Write-Host "ScrubDelaySec: $scrubDelayInvariant (Spike42.GazeHit OT = raw + delay)"
+            & $gazeExe `
+                '--store-name' 'Server' `
+                '--store-path' $casperServerPath `
+                '--out-root' $gazeHitsOutRoot `
+                '--delay-sec' $scrubDelayInvariant
+            if ($LASTEXITCODE -ne 0) {
+                throw "Spike42GazeHits exited $LASTEXITCODE"
+            }
+        }
+
         'Open' {
-            Write-Step 'Open (combined Casper + analysis Dataset -> PsiStudio / Logigram layout)'
+            Write-Step 'Open (combined Casper + analysis [+ GazeHits] Dataset -> PsiStudio / Logigram layout)'
             $launcher = Find-BuiltExe 'OpenLogigramPsiStudio'
             # Ensure launcher is current even if Build was skipped
             if (-not ($active -contains 'Build')) {
@@ -227,7 +287,8 @@ foreach ($step in $order) {
             $argList = @(
                 '--casper', $CasperPds,
                 '--psi-studio', $PsiStudio,
-                '--layout', $Layout
+                '--layout', $Layout,
+                '--gaze-hits', $gazeHitsOutRoot
             )
             if ($NoLaunch) { $argList += '--no-launch' }
             & $launcher @argList

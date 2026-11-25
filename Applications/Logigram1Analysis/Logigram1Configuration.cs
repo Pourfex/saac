@@ -50,6 +50,13 @@ namespace Logigram1Analysis
         public string OutputPath { get; set; }
 
         /// <summary>
+        /// Gets or sets signed seconds added to persisted <c>Logigram1.State</c> / <c>Logigram1.Outcome</c>
+        /// originating times for video scrub sync (default 0). CLI <c>--scrub-delay-sec</c> overrides.
+        /// </summary>
+        [JsonProperty("ScrubDelaySec")]
+        public double ScrubDelaySec { get; set; }
+
+        /// <summary>
         /// Loads configuration from a JSON file.
         /// </summary>
         /// <param name="path">Path to the JSON config file.</param>

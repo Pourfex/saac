@@ -18,6 +18,7 @@ namespace OpenLogigramPsiStudio
     public static class Program
     {
         private const string AnalysisStoreName = "Logigram1Analysis";
+        private const string GazeHitsStoreName = "Spike42GazeHits";
         private const string DefaultLayoutName = "Logigram";
 
         private static readonly string DefaultCasperPds =
@@ -31,7 +32,8 @@ namespace OpenLogigramPsiStudio
         /// </summary>
         /// <param name="args">
         /// Optional: --casper &lt;Casper5.pds&gt; --analysis &lt;Casper5.Logigram1Analysis.pds|storeDir&gt;
-        /// --psi-studio &lt;PsiStudio.exe&gt; --layout &lt;name&gt; --no-launch.
+        /// --gaze-hits &lt;Casper5.Spike42GazeHits|storeDir&gt; --psi-studio &lt;PsiStudio.exe&gt;
+        /// --layout &lt;name&gt; --no-launch.
         /// </param>
         /// <returns>Process exit code.</returns>
         public static int Main(string[] args)
@@ -41,6 +43,8 @@ namespace OpenLogigramPsiStudio
                 string casperPds = GetArg(args, "--casper") ?? DefaultCasperPds;
                 string analysisArg = GetArg(args, "--analysis")
                     ?? Path.Combine(Path.GetDirectoryName(casperPds) ?? ".", "Casper5.Logigram1Analysis.pds");
+                string gazeHitsArg = GetArg(args, "--gaze-hits")
+                    ?? Path.Combine(Path.GetDirectoryName(casperPds) ?? ".", "Casper5.Spike42GazeHits");
                 string psiStudioExe = GetArg(args, "--psi-studio") ?? DefaultPsiStudioExe;
                 string layoutName = GetArg(args, "--layout") ?? DefaultLayoutName;
                 bool noLaunch = args.Any(a => string.Equals(a, "--no-launch", StringComparison.OrdinalIgnoreCase));
@@ -60,15 +64,21 @@ namespace OpenLogigramPsiStudio
                     return 1;
                 }
 
+                string gazeHitsStoreRoot = ResolveNamedStoreRoot(gazeHitsArg, GazeHitsStoreName);
+
                 string combinedPds = Path.Combine(
                     Path.GetDirectoryName(casperPds) ?? ".",
                     Path.GetFileNameWithoutExtension(casperPds) + ".WithLogigram1.pds");
 
                 Console.WriteLine("Casper dataset:   " + casperPds);
                 Console.WriteLine("Analysis store:   " + analysisStoreRoot);
+                Console.WriteLine(
+                    gazeHitsStoreRoot != null
+                        ? "GazeHits store:    " + gazeHitsStoreRoot
+                        : "GazeHits store:    (none — run Spike42GazeHits / -Steps GazeHits to add scrub streams)");
                 Console.WriteLine("Combined dataset: " + combinedPds);
 
-                BuildCombinedDataset(casperPds, analysisStoreRoot, combinedPds);
+                BuildCombinedDataset(casperPds, analysisStoreRoot, gazeHitsStoreRoot, combinedPds);
                 EnsureLayoutSelected(layoutName);
 
                 if (noLaunch)
@@ -106,7 +116,11 @@ namespace OpenLogigramPsiStudio
             }
         }
 
-        private static void BuildCombinedDataset(string casperPds, string analysisStoreRoot, string combinedPds)
+        private static void BuildCombinedDataset(
+            string casperPds,
+            string analysisStoreRoot,
+            string gazeHitsStoreRoot,
+            string combinedPds)
         {
             Dataset casper = Dataset.Load(casperPds);
             if (casper.Sessions == null || casper.Sessions.Count == 0)
@@ -115,14 +129,26 @@ namespace OpenLogigramPsiStudio
             }
 
             Session session = casper.Sessions[0];
-            bool alreadyPresent = session.Partitions != null
+            bool analysisPresent = session.Partitions != null
                 && session.Partitions.Any(p =>
                     string.Equals(p.Name, AnalysisStoreName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(p.StoreName, AnalysisStoreName, StringComparison.OrdinalIgnoreCase));
 
-            if (!alreadyPresent)
+            if (!analysisPresent)
             {
                 session.AddPartitionFromPsiStoreAsync(AnalysisStoreName, analysisStoreRoot, AnalysisStoreName)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
+            bool gazePresent = session.Partitions != null
+                && session.Partitions.Any(p =>
+                    string.Equals(p.Name, GazeHitsStoreName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(p.StoreName, GazeHitsStoreName, StringComparison.OrdinalIgnoreCase));
+
+            if (gazeHitsStoreRoot != null && !gazePresent)
+            {
+                session.AddPartitionFromPsiStoreAsync(GazeHitsStoreName, gazeHitsStoreRoot, GazeHitsStoreName)
                     .GetAwaiter()
                     .GetResult();
             }
@@ -130,9 +156,74 @@ namespace OpenLogigramPsiStudio
             casper.Name = Path.GetFileNameWithoutExtension(combinedPds);
             casper.SaveAs(combinedPds);
             Console.WriteLine(
-                alreadyPresent
+                analysisPresent
                     ? "Analysis partition already present; refreshed combined .pds."
                     : "Added Logigram1Analysis partition to combined .pds.");
+            if (gazeHitsStoreRoot != null)
+            {
+                Console.WriteLine(
+                    gazePresent
+                        ? "Spike42GazeHits partition already present."
+                        : "Added Spike42GazeHits partition (Spike42.GazeHit).");
+            }
+        }
+
+        /// <summary>
+        /// Resolves a Psi store root directory that contains <paramref name="storeName"/>.0000 (or similar).
+        /// </summary>
+        private static string ResolveNamedStoreRoot(string pathArg, string storeName)
+        {
+            if (string.IsNullOrWhiteSpace(pathArg))
+            {
+                return null;
+            }
+
+            string path = Path.GetFullPath(pathArg);
+            if (Directory.Exists(path)
+                && Directory.GetDirectories(path, storeName + ".*").Length > 0)
+            {
+                return path;
+            }
+
+            if (File.Exists(path) && path.EndsWith(".pds", StringComparison.OrdinalIgnoreCase))
+            {
+                string siblingDir = Path.Combine(
+                    Path.GetDirectoryName(path) ?? ".",
+                    Path.GetFileNameWithoutExtension(path));
+                if (Directory.Exists(siblingDir)
+                    && Directory.GetDirectories(siblingDir, storeName + ".*").Length > 0)
+                {
+                    return siblingDir;
+                }
+
+                Dataset ds = Dataset.Load(path);
+                IPartition partition = ds.Sessions?
+                    .SelectMany(s => s.Partitions)
+                    .FirstOrDefault(p =>
+                        string.Equals(p.StoreName, storeName, StringComparison.OrdinalIgnoreCase));
+                if (partition != null && !string.IsNullOrEmpty(partition.StorePath))
+                {
+                    string storePath = partition.StorePath;
+                    if (!Path.IsPathRooted(storePath))
+                    {
+                        storePath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path) ?? ".", storePath));
+                    }
+
+                    if (Directory.Exists(storePath)
+                        && Path.GetFileName(storePath).StartsWith(storeName + ".", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Path.GetDirectoryName(storePath);
+                    }
+
+                    if (Directory.Exists(storePath)
+                        && Directory.GetDirectories(storePath, storeName + ".*").Length > 0)
+                    {
+                        return storePath;
+                    }
+                }
+            }
+
+            return null;
         }
 
         private static string ResolveAnalysisStoreRoot(string analysisArg)

@@ -38,6 +38,7 @@ namespace Logigram1Analysis
         /// <param name="inputStorePath">Absolute input Casper <c>.pds</c> (SESSION_ATTR session name).</param>
         /// <param name="enabledUnits">Enabled unit ids; must include <c>Logigram1.GammaPath</c> (legacy ids ignored upstream).</param>
         /// <param name="findStreamByExactName">Stream lookup (defaults to console helper).</param>
+        /// <param name="scrubDelaySec">Signed seconds added to persisted State/Outcome OTs (video scrub sync).</param>
         /// <exception cref="InvalidOperationException">Missing topic stream or persist failure.</exception>
         public static void RunAndPersist(
             Dataset dataset,
@@ -45,7 +46,8 @@ namespace Logigram1Analysis
             string resolvedOutputPds,
             string inputStorePath,
             IReadOnlyList<string> enabledUnits,
-            Func<Dataset, string, IStreamMetadata> findStreamByExactName = null)
+            Func<Dataset, string, IStreamMetadata> findStreamByExactName = null,
+            double scrubDelaySec = 0)
         {
             if (dataset == null)
             {
@@ -97,7 +99,10 @@ namespace Logigram1Analysis
             IReadOnlyList<(GammaPathTopicEvent Event, DateTime OriginatingTime)> orderedEvents =
                 GammaPathTopicOrdering.Order(LoadTopicEvents(dataset, lookup, requiredTopics, optionalTopics));
 
-            // Pass 2: causal FullSpeed replay of the ordered sequence through the cycle FSM + Outcome writer.
+            // Pass 2: causal FullSpeed replay — capture State/Outcome at unit OT (no store write yet).
+            var capturedStates = new List<(LogigramState State, DateTime OriginatingTime)>();
+            var capturedOutcomes = new List<(LogigramOutcome Outcome, DateTime OriginatingTime)>();
+
             using (Pipeline pipeline = Pipeline.Create(nameof(FirstUnitPipelineRunner)))
             {
                 var writer = new LogigramOutcomeWriter(pipeline);
@@ -108,17 +113,68 @@ namespace Logigram1Analysis
                 Generators.Sequence(pipeline, orderedEvents)
                     .PipeTo(gammaPath.AddOrderedTopicInput());
 
-                // State / Outcome keep the unit's own module- and leave-aligned originating times:
-                // no second remapper (it relocated node-3 States onto the session's last State time).
-                PsiExporter exporter = PsiStore.Create(pipeline, AnalysisStoreName, storeRoot);
-                gammaPath.StateOut.Write(LogigramState.StreamName, exporter);
-                writer.Out.Write(LogigramOutcome.StreamName, exporter);
+                // Capture at unit OT; scrub delay is applied only at persist (Pass 3).
+                gammaPath.StateOut.Do((state, envelope) =>
+                {
+                    capturedStates.Add((
+                        new LogigramState
+                        {
+                            Status = state.Status,
+                            BatteryId = state.BatteryId,
+                            PersonId = state.PersonId,
+                        },
+                        envelope.OriginatingTime));
+                });
+                writer.Out.Do((outcome, envelope) =>
+                {
+                    capturedOutcomes.Add((
+                        new LogigramOutcome
+                        {
+                            Regulation = outcome.Regulation,
+                            BatteryId = outcome.BatteryId,
+                            PersonId = outcome.PersonId,
+                        },
+                        envelope.OriginatingTime));
+                });
 
                 // REPLAY = FullSpeed over GammaPath + Battery-scoped derivation.
                 RunFullSpeed(pipeline);
             }
 
+            // Pass 3: persist with optional scrub delay (video sync); relative OT order preserved.
+            PersistCapturedMessages(storeRoot, capturedStates, capturedOutcomes, scrubDelaySec);
             SaveAnalysisDataset(resolvedOutputPds, storeRoot, inputStorePath);
+        }
+
+        /// <summary>
+        /// Writes captured State/Outcome into a fresh analysis store with scrub delay applied.
+        /// </summary>
+        private static void PersistCapturedMessages(
+            string storeRoot,
+            List<(LogigramState State, DateTime OriginatingTime)> states,
+            List<(LogigramOutcome Outcome, DateTime OriginatingTime)> outcomes,
+            double scrubDelaySec)
+        {
+            var shiftedStates = ScrubTimeShift.ApplyAndOrder(states, scrubDelaySec);
+            var shiftedOutcomes = ScrubTimeShift.ApplyAndOrder(outcomes, scrubDelaySec);
+
+            using (Pipeline pipeline = Pipeline.Create(nameof(FirstUnitPipelineRunner) + "-Persist"))
+            {
+                PsiExporter exporter = PsiStore.Create(pipeline, AnalysisStoreName, storeRoot);
+                if (shiftedStates.Count > 0)
+                {
+                    Generators.Sequence(pipeline, shiftedStates)
+                        .Write(LogigramState.StreamName, exporter);
+                }
+
+                if (shiftedOutcomes.Count > 0)
+                {
+                    Generators.Sequence(pipeline, shiftedOutcomes)
+                        .Write(LogigramOutcome.StreamName, exporter);
+                }
+
+                RunFullSpeed(pipeline);
+            }
         }
 
         /// <summary>

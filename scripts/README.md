@@ -28,9 +28,14 @@ Useful variants:
 
 # Re-open PsiStudio only
 .\scripts\Run-Logigram1.ps1 -Steps Open
+
+# Nudge State/Outcome + gaze hits vs video (+1.5s), rebuild analysis + hits, open
+.\scripts\Run-Logigram1.ps1 -Steps Analysis,GazeHits,Open -ScrubDelaySec 1.5
 ```
 
-**Steps** (extend this list as epics grow): `Build`, `Viz`, `Analysis`, `Open` (+ `Test` via `-Tests`).
+**Steps** (extend this list as epics grow): `Build`, `Viz`, `Analysis`, `GazeHits`, `Open` (+ `Test` via `-Tests`).
+
+**ScrubDelaySec** (signed seconds): shifts persisted `Logigram1.State` / `Logigram1.Outcome` and the single `Spike42.GazeHit` stream for video sync. `-GazeDelaySec` is an alias when `-ScrubDelaySec` is left at 0. Re-run Analysis/GazeHits to apply a new delay.
 
 Related tools:
 

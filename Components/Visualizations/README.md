@@ -7,6 +7,12 @@ This project contains visualizations for PsiStudio. It needs, as NuGet packages,
 Add `Visualizations.dll` to "Additional Assemblies" in the settings of PsiStudio and start PsiStudio again; then right-click a stream and choose the visualization.
 PsiStudio looks for the assemblies a plugin refers to in its own folder first: keep no copy of `Groups.dll`, of `Visualizations.dll` or of another SAAC assembly there.
 
+## Object Bounds
+The **Object Bounds** visualization object binds to Casper `ObjectBound` (`ValueTuple<string, Vector3, Vector3>` = name, center, size; AABB = center ± size/2). On stream bind it preloads **all** messages in the store (so you do not need to scrub the sparse early burst), keeps the latest bounds per name, and draws labeled boxes in the XYZ / 3D panel. Names containing **zone** are faded; others stay full opacity. **ReverseYZ** defaults **on**.
+
+## Gaze Orientation
+The **Gaze Orientation** visualization binds to `N-GazeHeadOrientation` (`Tuple<Vector3, Vector3>` = world position + Euler degrees). It draws a thick gaze arrow, sphere-raycasts against companion `ObjectBound` (radius **0**, maxDistance **3 m**, **Ignore Zones** on), and highlights the nearest non-zone hit. Colors from stream name: **`1-…` yellow ray / orange highlight**, **`2-…` red ray / black highlight**. Status billboard shows `Gaze → name (m)`. **ReverseYZ** defaults **on**.
+
 ## Logigram State
 The **Logigram State** visualization object binds to the contracts type `SAAC.Logigram1.LogigramState` (from the `Logigram1` contracts assembly — no Logic unit DLL required). Discovery is type-driven; producers must write the sole AD-11 state stream named `Logigram1.State` (constant `LogigramState.StreamName`). When the playhead has no message, the shell shows an honest empty label (`no state`) rather than inventing regulation values.
 
@@ -34,6 +40,8 @@ Two visualizations show a group of any number of participants from what the Coll
 * [Logigram State Visualization Object](src/VisualizationObjects/LogigramStateVisualizationObject.cs)
 * [Logigram Outcome Visualization Object](src/VisualizationObjects/LogigramOutcomeVisualizationObject.cs)
 * [Logigram Graph Visualization Object](src/VisualizationObjects/LogigramGraphVisualizationObject.cs)
+* [Gaze Orientation Visualization Object](src/VisualizationObjects/GazeOrientationVisualizationObject.cs)
+* [Object Bound Visualization Object](src/VisualizationObjects/ObjectBoundVisualizationObject.cs)
 * [Position Orientation List Visualization Object](src/VisualizationObjects/PositionOrientationListVisualizationObject.cs)
 * [Position Orientation Visualization Object](src/VisualizationObjects/PositionOrientationVisualizationObject.cs)
 * [Simplified Body List Visualization Object](src/VisualizationObjects/SimplifiedBodyListVisualizationObject.cs)

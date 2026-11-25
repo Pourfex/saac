@@ -1,4 +1,5 @@
 {
   "StorePath": "C:\\Users\\alexi\\Documents\\Dev\\Ressources\\Casper81\\Casper5\\Casper5.pds",
-  "EnabledUnits": [ "Logigram1.GammaPath", "Logigram1.AlphaBetaPath" ]
+  "EnabledUnits": [ "Logigram1.GammaPath", "Logigram1.AlphaBetaPath" ],
+  "ScrubDelaySec": 0
 }
